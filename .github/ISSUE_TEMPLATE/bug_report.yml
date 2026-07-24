@@ -1,0 +1,87 @@
+name: Bug Report
+description: Report a problem with pack-commit
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the details below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: e.g. The script fails when I enter more than 1 commit...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Run commit.fish
+        2. Enter '3' for number of commits
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Terminal output / error message
+      description: Paste the exact output or error you got. This will be automatically formatted as code.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: fish-version
+    attributes:
+      label: Fish shell version
+      description: Run `fish --version` to check.
+      placeholder: e.g. fish, version 3.7.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Arch / CachyOS / Arch-based
+        - Debian / Ubuntu / Debian-based
+        - Fedora / RHEL-based
+        - macOS
+        - Windows (WSL)
+        - Other (please specify below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Your config.fish (remove any personal paths/links you'd rather not share)
+      render: fish
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I've checked the README and this isn't covered there
+          required: true
+        - label: I've confirmed `git`, `rsync`, and `fish` are all installed and up to date
+          required: true
