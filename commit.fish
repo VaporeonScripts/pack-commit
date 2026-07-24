@@ -4,6 +4,9 @@ set script_dir (dirname (status --current-filename))
 set config_file "$script_dir/config.fish"
 
 set dry_run 0
+set log_dir "$script_dir/logs"
+set log_file "$log_dir/pack-commit.log"
+set run_timestamp (date "+%Y-%m-%d %H:%M:%S")
 
 for arg in $argv
     switch $arg
@@ -44,7 +47,6 @@ if not set -q PACK_NAME; or not set -q REPO_PATH; or not set -q SYNC_FOLDERS
     exit 1
 end
 
-# Pre-flight checks
 if not test -d "$REPO_PATH"
     set_color red
     echo "REPO_PATH does not exist: $REPO_PATH"
@@ -93,6 +95,55 @@ echo "========================================="
 echo ""
 set_color normal
 
+cd "$REPO_PATH"
+
+set pending_count (git rev-list --count '@{u}..HEAD' 2>/dev/null)
+
+if test -n "$pending_count"; and test "$pending_count" -gt 0
+    set_color yellow
+    echo "You have $pending_count commit(s) not yet pushed from a previous run:"
+    set_color normal
+
+    git log --oneline --stat '@{u}..HEAD'
+
+    echo ""
+    echo "Push these now? [Y/n]"
+    read -P "> " pending_push_confirm
+
+    if not test "$pending_push_confirm" = "n"; and not test "$pending_push_confirm" = "N"
+        set_color yellow
+        echo "Pulling latest changes first..."
+        set_color normal
+        git pull --rebase
+
+        if test $status -ne 0
+            set_color red
+            echo "git pull --rebase failed, likely due to a conflict."
+            echo "Resolve it manually, then run 'git rebase --continue' and 'git push'."
+            set_color normal
+            echo ""
+            echo "Press Enter to close."
+            read
+            exit 1
+        end
+
+        set pending_msgs (git log --format="%s" '@{u}..HEAD')
+
+        git push
+        set_color green
+        echo "Pending commits pushed."
+        set_color normal
+
+        mkdir -p "$log_dir"
+        for msg in $pending_msgs
+            echo "[$run_timestamp] [$PACK_NAME] [PENDING PUSH] $msg" >> "$log_file"
+        end
+    else
+        echo "Skipped. They'll show up again next time you run this script."
+    end
+    echo ""
+end
+
 for folder in $SYNC_FOLDERS
     set src (echo $folder | cut -d ':' -f1)
     set dest (echo $folder | cut -d ':' -f2)
@@ -103,8 +154,6 @@ for folder in $SYNC_FOLDERS
         rsync -a --delete "$src/" "$dest/"
     end
 end
-
-cd "$REPO_PATH"
 
 set changes (git status --short)
 
@@ -135,17 +184,27 @@ if test $dry_run -eq 1
     exit 0
 end
 
-echo "How many separate commits do you want to split these changes into? (default 1)"
-read -P "> " commit_count
+set valid_input 0
+while test $valid_input -eq 0
+    echo "How many separate commits do you want to split these changes into? (default 1, type 'help' for usage info)"
+    read -P "> " commit_count
 
-if test -z "$commit_count"
-    set commit_count 1
+    if test "$commit_count" = "help"; or test "$commit_count" = "--help"
+        echo ""
+        echo "Usage:"
+        echo "  Enter a number to split your changes into that many commits, each"
+        echo "  with its own file selection and message."
+        echo "  Press Enter with nothing typed to default to a single commit"
+        echo "  containing everything that changed."
+        echo ""
+    else
+        if test -z "$commit_count"
+            set commit_count 1
+        end
+        set valid_input 1
+    end
 end
 
-set log_dir "$script_dir/logs"
-mkdir -p "$log_dir"
-set log_file "$log_dir/pack-commit.log"
-set run_timestamp (date "+%Y-%m-%d %H:%M:%S")
 set committed_messages
 
 for i in (seq 1 $commit_count)
@@ -180,7 +239,9 @@ for i in (seq 1 $commit_count)
     set -a committed_messages "$commit_msg"
 end
 
-if test (count $committed_messages) -eq 0
+set commit_num_made (count $committed_messages)
+
+if test $commit_num_made -eq 0
     set_color yellow
     echo ""
     echo "No commits were made. Nothing to push."
@@ -193,12 +254,13 @@ end
 
 echo ""
 set_color yellow
-echo "About to push (count $committed_messages) commit(s) to origin. Continue? [Y/n]"
+echo "About to push $commit_num_made commit(s) to origin. Continue? [Y/n]"
 set_color normal
 read -P "> " push_confirm
 
 if test "$push_confirm" = "n"; or test "$push_confirm" = "N"
-    echo "Push skipped. Your commits are saved locally — run git push manually when ready."
+    echo "Push skipped. Your commits are saved locally — next time you run this"
+    echo "script, it'll offer to push them for you."
     echo ""
     echo "Press Enter to close."
     read
@@ -235,10 +297,11 @@ echo ""
 set_color green
 echo "Done! Commits pushed this run:"
 set_color normal
-git log --oneline -(count $committed_messages)
+git log --oneline -$commit_num_made
 
+mkdir -p "$log_dir"
 for msg in $committed_messages
-    echo "[$run_timestamp] $msg" >> "$log_file"
+    echo "[$run_timestamp] [$PACK_NAME] $msg" >> "$log_file"
 end
 
 echo ""
