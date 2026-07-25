@@ -15,7 +15,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Extract changelog section for this tag
+        run: |
+          TAG_NAME="${GITHUB_REF_NAME}"
+          awk -v tag="$TAG_NAME" '
+            $0 ~ "^## .*"tag { found=1; print; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+
+          if [ ! -s release_notes.md ]; then
+            echo "No matching section found in CHANGELOG.md for $TAG_NAME" > release_notes.md
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: release_notes.md
