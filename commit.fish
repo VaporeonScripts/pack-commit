@@ -20,12 +20,36 @@ for arg in $argv
             echo "  -h, --help      Show this help message and exit"
             echo "  --dry-run       Show what would be synced and what changed, without"
             echo "                  committing or pushing anything"
+            echo "  --stats         Show a summary of logged commits and exit"
             echo ""
             echo "Config is read from config.fish next to this script."
             echo "See config.example.fish for the expected format."
             exit 0
         case "--dry-run"
             set dry_run 1
+        case "--stats"
+            if not test -f "$log_file"
+                echo "No log file found yet at $log_file"
+                exit 0
+            end
+
+            set total_lines (count (cat "$log_file"))
+            set current_month (date "+%Y-%m")
+            set this_month_lines (grep -c "^\[$current_month" "$log_file" 2>/dev/null; or echo 0)
+            set first_line (head -n 1 "$log_file")
+            set last_line (tail -n 1 "$log_file")
+
+            set_color cyan
+            echo "=== Commit Log Stats ==="
+            set_color normal
+            echo "Total logged commits: $total_lines"
+            echo "Commits this month:   $this_month_lines"
+            echo ""
+            echo "First logged commit:"
+            echo "  $first_line"
+            echo "Most recent commit:"
+            echo "  $last_line"
+            exit 0
     end
 end
 
@@ -58,6 +82,20 @@ if not test -d "$REPO_PATH/.git"
     set_color red
     echo "REPO_PATH is not a git repository: $REPO_PATH"
     set_color normal
+    exit 1
+end
+
+if test -d "$REPO_PATH/.git/rebase-merge"; or test -d "$REPO_PATH/.git/rebase-apply"
+    set_color red
+    echo "A rebase is already in progress in $REPO_PATH."
+    echo "Resolve it first: go into the repo and run either"
+    echo "  git rebase --continue"
+    echo "or, to back out entirely:"
+    echo "  git rebase --abort"
+    set_color normal
+    echo ""
+    echo "Press Enter to close."
+    read
     exit 1
 end
 
@@ -96,6 +134,12 @@ echo ""
 set_color normal
 
 cd "$REPO_PATH"
+
+set current_branch (git rev-parse --abbrev-ref HEAD)
+set_color yellow
+echo "Current branch: $current_branch"
+set_color normal
+echo ""
 
 set pending_count (git rev-list --count '@{u}..HEAD' 2>/dev/null)
 
@@ -196,6 +240,8 @@ while test $valid_input -eq 0
         echo "  with its own file selection and message."
         echo "  Press Enter with nothing typed to default to a single commit"
         echo "  containing everything that changed."
+        echo "  At the commit message prompt, type 'history' to see your last"
+        echo "  5 commit messages and optionally reuse one."
         echo ""
     else
         if test -z "$commit_count"
@@ -204,6 +250,8 @@ while test $valid_input -eq 0
         set valid_input 1
     end
 end
+
+git reset > /dev/null
 
 set committed_messages
 
@@ -226,17 +274,52 @@ for i in (seq 1 $commit_count)
         set commit_paths (string split " " -- $commit_paths_raw)
     end
 
-    echo "Enter commit message for commit $i:"
-    read -P "> " commit_msg
+    set commit_msg ""
+    while test -z "$commit_msg"
+        echo "Enter commit message for commit $i (or type 'history' to reuse a recent one):"
+        read -P "> " commit_msg_raw
 
-    if test -z "$commit_msg"
-        echo "No message entered, skipping this commit."
-        continue
+        if test "$commit_msg_raw" = "history"
+            if test -f "$log_file"
+                set_color cyan
+                echo "Last 5 commit messages:"
+                set_color normal
+                set recent_msgs (tail -n 5 "$log_file")
+                set idx 1
+                for line in $recent_msgs
+                    echo "  $idx) $line"
+                    set idx (math $idx + 1)
+                end
+                echo "Type a number to reuse one, or type a new message:"
+                read -P "> " history_choice
+
+                if string match -qr '^[0-9]+$' -- "$history_choice"
+                    set chosen_line $recent_msgs[$history_choice]
+                    if test -n "$chosen_line"
+                        set commit_msg (string replace -r '^\[.*?\]\s*\[.*?\]\s*(\[PENDING PUSH\]\s*)?' '' -- "$chosen_line")
+                    else
+                        echo "Invalid number, try again."
+                    end
+                else
+                    set commit_msg "$history_choice"
+                end
+            else
+                echo "No log file yet, nothing to reuse."
+            end
+        else
+            set commit_msg "$commit_msg_raw"
+        end
     end
 
     git add $commit_paths
-    git commit -m "$commit_msg"
-    set -a committed_messages "$commit_msg"
+
+    if git commit -m "$commit_msg"
+        set -a committed_messages "$commit_msg"
+    else
+        set_color yellow
+        echo "Nothing was actually committed for this round (no staged changes matched), skipping."
+        set_color normal
+    end
 end
 
 set commit_num_made (count $committed_messages)
@@ -254,7 +337,7 @@ end
 
 echo ""
 set_color yellow
-echo "About to push $commit_num_made commit(s) to origin. Continue? [Y/n]"
+echo "About to push $commit_num_made commit(s) to branch '$current_branch'. Continue? [Y/n]"
 set_color normal
 read -P "> " push_confirm
 
