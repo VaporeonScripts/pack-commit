@@ -29,11 +29,23 @@ Run it:
 ./commit.fish
 ```
 
-- If nothing changed since your last commit, it tells you and exits.
-- If something changed, it shows you the file list (`git status --short`) and asks how many commits you want to split the changes into.
-- For a single commit (the default), it stages everything and asks for one message.
-- For multiple commits, it asks for specific file/folder paths for each commit round — press Enter with no paths to sweep up everything remaining into that commit.
-- Pushes once at the end and shows a summary of what was pushed.
+Options:
+- `-h`, `--help` — show usage info and exit
+- `--dry-run` — show what would be synced and what changed, without committing or pushing anything
+
+What happens when you run it:
+- If you have commits sitting locally from a previous run that never got pushed (e.g. you answered "n" to the push prompt last time), it shows you exactly what's pending — commit summaries and which files changed — and offers to push them right away.
+- It then syncs your configured folders and shows you what changed (`git status --short`).
+- If nothing changed, it tells you and exits.
+- If something changed, it asks how many commits you want to split the changes into (type `help` at this prompt for a quick reminder of how that works).
+  - For a single commit (the default), it stages everything and asks for one message.
+  - For multiple commits, it asks for specific file/folder paths for each commit round — press Enter with no paths to sweep up everything remaining into that commit.
+- Before pushing, it asks for confirmation. Answering "n" leaves your commits saved locally; next time you run the script, it'll detect and offer to push them.
+- Pushes once at the end (auto-rebasing on top of any remote changes first) and shows a summary of what was pushed.
+
+## Logs
+
+Every successful push (including pending ones pushed on a later run) is appended to `logs/pack-commit.log`, next to the script, with a timestamp and the pack name. This folder is gitignored by default so it stays local to your machine.
 
 ## Desktop shortcut (Linux/KDE)
 
@@ -54,3 +66,4 @@ Swap `konsole` for your terminal of choice if you're not on KDE. You may need to
 
 - `config.fish` is gitignored so your personal paths and Discord link never end up committed if you fork/publish this tool.
 - The sync step uses `rsync -a --delete`, which mirrors folders exactly — including removing files from the destination that no longer exist in the source. This is intentional (so deleted configs actually get removed from the repo), but be aware of it.
+- Before pushing, the script runs `git pull --rebase` automatically to avoid rejected pushes from diverged branches. If a real conflict comes up, it stops and tells you exactly what to run to resolve it manually.
