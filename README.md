@@ -32,16 +32,21 @@ Run it:
 Options:
 - `-h`, `--help` — show usage info and exit
 - `--dry-run` — show what would be synced and what changed, without committing or pushing anything
+- `--stats` — show a summary of your logged commit history (total logged, this month, first/most recent) and exit
 
 What happens when you run it:
+- If a previous run was interrupted mid-rebase, it detects that immediately and tells you to resolve it (`git rebase --continue` or `git rebase --abort`) before doing anything else.
+- It shows your current branch as a quick sanity check before anything happens.
 - If you have commits sitting locally from a previous run that never got pushed (e.g. you answered "n" to the push prompt last time), it shows you exactly what's pending — commit summaries and which files changed — and offers to push them right away.
 - It then syncs your configured folders and shows you what changed (`git status --short`).
 - If nothing changed, it tells you and exits.
-- If something changed, it asks how many commits you want to split the changes into (type `help` at this prompt for a quick reminder of how that works).
+- If something changed, it asks how many commits you want to split the changes into (type `help` at this prompt for a quick reminder of how that works). Any files left staged from outside this run are unstaged first, so each commit round only ever contains what you actually specify for it.
   - For a single commit (the default), it stages everything and asks for one message.
   - For multiple commits, it asks for specific file/folder paths for each commit round — press Enter with no paths to sweep up everything remaining into that commit.
-- Before pushing, it asks for confirmation. Answering "n" leaves your commits saved locally; next time you run the script, it'll detect and offer to push them.
-- Pushes once at the end (auto-rebasing on top of any remote changes first) and shows a summary of what was pushed.
+  - At the commit message prompt, type `history` to see your last 5 logged messages and either reuse one by number or type a new one.
+  - A round only counts toward the final push if `git commit` actually created a commit — if nothing was staged for that round, it's skipped rather than falsely counted.
+- Before pushing, it shows the branch you're pushing to and asks for confirmation. Answering "n" leaves your commits saved locally; next time you run the script, it'll detect and offer to push them.
+- Pushes once at the end (auto-rebasing on top of any remote changes first) and shows a summary of what was actually pushed.
 
 ## Logs
 
