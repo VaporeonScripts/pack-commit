@@ -19,7 +19,7 @@ jobs:
         run: |
           TAG_NAME="${GITHUB_REF_NAME}"
           awk -v tag="$TAG_NAME" '
-            $0 ~ "^## .*"tag { found=1; print; next }
+            $0 ~ "^## "tag"([^0-9a-zA-Z].*)?$" { found=1; print; next }
             found && /^## / { exit }
             found { print }
           ' CHANGELOG.md > release_notes.md
