@@ -352,6 +352,27 @@ for i in (seq 1 $commit_count)
 
     git add $commit_paths
 
+    set staged_files (git diff --cached --name-only)
+    set touched_folders
+    for folder in $SYNC_FOLDERS
+        set dest (echo $folder | cut -d ':' -f2)
+        set folder_name (basename "$dest")
+        for f in $staged_files
+            if string match -q "$folder_name/*" -- "$f"
+                if not contains "$folder_name" $touched_folders
+                    set -a touched_folders "$folder_name"
+                end
+                break
+            end
+        end
+    end
+
+    if test (count $touched_folders) -gt 0
+        set folder_tag "[" (string join ", " $touched_folders) "]"
+        set folder_tag (string join "" $folder_tag)
+        set commit_msg "$folder_tag $commit_msg"
+    end
+
     if git commit -m "$commit_msg"
         set -a committed_messages "$commit_msg"
     else
