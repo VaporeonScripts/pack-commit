@@ -115,23 +115,27 @@ if test $missing_sources -eq 1
     exit 1
 end
 
-set_color cyan
-echo ""
-echo "========================================="
-echo "   $PACK_NAME — GitHub Commit Script"
-echo "   Syncs and commits pack changes"
-if set -q AUTHOR_NAME
-    echo "   Made by $AUTHOR_NAME"
+function print_banner
+    set_color cyan
+    echo ""
+    echo "========================================="
+    echo "   $PACK_NAME — GitHub Commit Script"
+    echo "   Syncs and commits pack changes"
+    if set -q AUTHOR_NAME
+        echo "   Made by $AUTHOR_NAME"
+    end
+    if set -q DISCORD_LINK
+        echo "   Discord: $DISCORD_LINK"
+    end
+    if test $dry_run -eq 1
+        echo "   [DRY RUN — nothing will be committed or pushed]"
+    end
+    echo "========================================="
+    echo ""
+    set_color normal
 end
-if set -q DISCORD_LINK
-    echo "   Discord: $DISCORD_LINK"
-end
-if test $dry_run -eq 1
-    echo "   [DRY RUN — nothing will be committed or pushed]"
-end
-echo "========================================="
-echo ""
-set_color normal
+
+print_banner
 
 cd "$REPO_PATH"
 
@@ -188,27 +192,62 @@ if test -n "$pending_count"; and test "$pending_count" -gt 0
     echo ""
 end
 
-for folder in $SYNC_FOLDERS
-    set src (echo $folder | cut -d ':' -f1)
-    set dest (echo $folder | cut -d ':' -f2)
-    if test $dry_run -eq 1
-        echo "Would sync: $src -> $dest"
-        rsync -a --delete --dry-run "$src/" "$dest/"
-    else
-        rsync -a --delete "$src/" "$dest/"
+set no_changes_choice ""
+set first_check 1
+while true
+    if test $first_check -eq 0
+        clear
+        print_banner
     end
-end
+    set first_check 0
 
-set changes (git status --short)
+    for folder in $SYNC_FOLDERS
+        set src (echo $folder | cut -d ':' -f1)
+        set dest (echo $folder | cut -d ':' -f2)
+        if test $dry_run -eq 1
+            echo "Would sync: $src -> $dest"
+            rsync -a --delete --dry-run "$src/" "$dest/"
+        else
+            rsync -a --delete "$src/" "$dest/"
+        end
+    end
 
-if test -z "$changes"
+    set changes (git status --short)
+
+    if test -n "$changes"
+        break
+    end
+
+    if test $dry_run -eq 1
+        set_color yellow
+        echo "No changes detected. (dry run, nothing to sync anyway)"
+        set_color normal
+        echo ""
+        echo "Press Enter to close."
+        read
+        exit 0
+    end
+
     set_color yellow
-    echo "No changes detected since last commit. Nothing to do."
+    echo "No changes detected since last commit."
     set_color normal
-    echo ""
-    echo "Press Enter to close."
-    read
-    exit 0
+    echo "Press Enter to close, type 'r' to check again, or 'help' for usage info:"
+    read -P "> " no_changes_choice
+
+    if test "$no_changes_choice" = "help"; or test "$no_changes_choice" = "--help"
+        echo ""
+        echo "Usage:"
+        echo "  'r'     — re-sync your folders and check for changes again"
+        echo "  Enter   — close the script"
+        echo ""
+        echo "Press Enter to continue."
+        read
+    else if test -z "$no_changes_choice"
+        echo ""
+        echo "Press Enter to close."
+        read
+        exit 0
+    end
 end
 
 echo ""
