@@ -39,7 +39,7 @@ What happens when you run it:
 - It shows your current branch as a quick sanity check before anything happens.
 - If you have commits sitting locally from a previous run that never got pushed (e.g. you answered "n" to the push prompt last time), it shows you exactly what's pending — commit summaries and which files changed — and offers to push them right away.
 - It then syncs your configured folders and shows you what changed (`git status --short`).
-- If nothing changed, it tells you and exits.
+- If nothing changed, it doesn't just exit — it offers to check again right there: type `r` to re-sync and check for changes, `help` for a quick reminder, or press Enter to close. Handy if you're editing files with the script's terminal left open, so you don't need to relaunch it from scratch every time.
 - If something changed, it asks how many commits you want to split the changes into (type `help` at this prompt for a quick reminder of how that works). Any files left staged from outside this run are unstaged first, so each commit round only ever contains what you actually specify for it.
   - For a single commit (the default), it stages everything and asks for one message.
   - For multiple commits, it asks for specific file/folder paths for each commit round — press Enter with no paths to sweep up everything remaining into that commit.
