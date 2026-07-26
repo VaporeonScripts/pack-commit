@@ -33,24 +33,29 @@ Options:
 - `-h`, `--help` — show usage info and exit
 - `--dry-run` — show what would be synced and what changed, without committing or pushing anything
 - `--stats` — show a summary of your logged commit history (total logged, this month, first/most recent) and exit
+- `--status` — show your current branch, any unpushed commits, and any uncommitted changes already in the repo, without syncing or prompting for anything
 
 What happens when you run it:
 - If a previous run was interrupted mid-rebase, it detects that immediately and tells you to resolve it (`git rebase --continue` or `git rebase --abort`) before doing anything else.
 - It shows your current branch as a quick sanity check before anything happens.
-- If you have commits sitting locally from a previous run that never got pushed (e.g. you answered "n" to the push prompt last time), it shows you exactly what's pending — commit summaries and which files changed — and offers to push them right away.
+- If you have commits sitting locally from a previous run that never got pushed (e.g. you answered "n" to the push prompt last time), it shows you exactly what's pending — commit summaries and which files changed — and lets you:
+  - push them now
+  - skip (they'll show up again next run)
+  - `undo` the last one (kept staged, not lost) if you want to redo it
+  - `amend` the last one's message if only the wording was wrong
 - It then syncs your configured folders and shows you what changed (`git status --short`).
 - If nothing changed, it doesn't just exit — it offers to check again right there: type `r` to re-sync and check for changes, `help` for a quick reminder, or press Enter to close. Handy if you're editing files with the script's terminal left open, so you don't need to relaunch it from scratch every time.
 - If something changed, it asks how many commits you want to split the changes into (type `help` at this prompt for a quick reminder of how that works). Any files left staged from outside this run are unstaged first, so each commit round only ever contains what you actually specify for it.
   - For a single commit (the default), it stages everything and asks for one message.
-  - For multiple commits, it asks for specific file/folder paths for each commit round — press Enter with no paths to sweep up everything remaining into that commit.
-  - At the commit message prompt, type `history` to see your last 5 logged messages and either reuse one by number or type a new one.
+  - For multiple commits, instead of typing file paths, you get a **numbered list** of remaining changed files — just type the numbers you want (e.g. `1 3`), space-separated. Press Enter with no numbers to sweep up everything remaining into that commit.
+  - At the commit message prompt: type `history` to reuse one of your last 5 logged messages, or `skip` to bail out of that specific round entirely without committing anything for it.
   - A round only counts toward the final push if `git commit` actually created a commit — if nothing was staged for that round, it's skipped rather than falsely counted.
-- Before pushing, it shows the branch you're pushing to and asks for confirmation. Answering "n" leaves your commits saved locally; next time you run the script, it'll detect and offer to push them.
+- Before pushing, it shows the branch you're pushing to and asks for confirmation — same `undo`/`amend` options are available here too, for commits made during this run.
 - Pushes once at the end (auto-rebasing on top of any remote changes first) and shows a summary of what was actually pushed.
 
 ## Logs
 
-Every successful push (including pending ones pushed on a later run) is appended to `logs/pack-commit.log`, next to the script, with a timestamp and the pack name. This folder is gitignored by default so it stays local to your machine.
+Every successful push (including pending ones pushed on a later run) is appended to `logs/pack-commit.log`, next to the script, with a timestamp, pack name, and the folder tag for that commit. This folder is gitignored by default so it stays local to your machine.
 
 ## Desktop shortcut (Linux/KDE)
 
@@ -72,3 +77,4 @@ Swap `konsole` for your terminal of choice if you're not on KDE. You may need to
 - `config.fish` is gitignored so your personal paths and Discord link never end up committed if you fork/publish this tool.
 - The sync step uses `rsync -a --delete`, which mirrors folders exactly — including removing files from the destination that no longer exist in the source. This is intentional (so deleted configs actually get removed from the repo), but be aware of it.
 - Before pushing, the script runs `git pull --rebase` automatically to avoid rejected pushes from diverged branches. If a real conflict comes up, it stops and tells you exactly what to run to resolve it manually.
+- `undo` and `amend` only ever act on the single most recent commit — they won't reach further back into history.
