@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.2.0 — Re-sync mid-run, sync timestamp, and run summary
+
+### Added
+- `r` option at the "How many commits" prompt to re-sync your configured folders and re-check for changes without leaving the script — useful if source files are still being written when you reach that point (e.g. a game/launcher still saving files)
+- Optional `TOOL_VERSION` variable in `config.fish`, shown in the banner if set
+- "Last synced" line in the banner, showing both relative (`2 hour(s) ago`) and absolute timestamp of the last logged push
+- Aggregate diffstat summary at the end of a run (total files/insertions/deletions across every commit made that run, accurate even if `undo`/`amend`/`skip` were used along the way)
+
+### Fixed
+- The `help` text at the "How many commits" prompt now pauses for you to read before the next screen clear wipes it
+
 ## v1.1.0 — File picker, undo/amend, and skip support
 
 Adds several interactive workflow improvements on top of the v1.0.0 stable release.
