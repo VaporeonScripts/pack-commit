@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.0 — File picker, undo/amend, and skip support
+
+Adds several interactive workflow improvements on top of the v1.0.0 stable release.
+
+### Added
+- Numbered file picker for multi-commit splits — pick files by index (`1 3 5`) instead of typing full paths
+- `undo` option at both push confirmation prompts, removing the last commit (pending or made this run) and keeping its changes staged
+- `amend` option at both push confirmation prompts, letting you fix the last commit's message (with the folder tag automatically recomputed) without touching its staged changes
+- `skip` option at the commit message prompt, letting you bail out of a specific round in a multi-commit split without committing anything for it
+- `--status` flag for a quick, non-mutating check of current branch, unpushed commits, and uncommitted changes already in the repo
+
+### Fixed
+- Uncommitted file lists in `--status` output no longer print all on one line — each file now shows on its own line
+
 ## v1.0.0 — First stable release
 
 Pack Commit's first stable release. Syncs your modpack's config/kubejs/etc. folders into a GitHub repo and walks you through committing and pushing, with the following features:
