@@ -8,6 +8,24 @@ set log_dir "$script_dir/logs"
 set log_file "$log_dir/pack-commit.log"
 set run_timestamp (date "+%Y-%m-%d %H:%M:%S")
 
+if not test -f "$config_file"
+    set_color red
+    echo "config.fish not found next to commit.fish."
+    echo "Copy config.example.fish to config.fish and edit it first."
+    set_color normal
+    exit 1
+end
+
+source "$config_file"
+
+if not set -q PACK_NAME; or not set -q REPO_PATH; or not set -q SYNC_FOLDERS
+    set_color red
+    echo "config.fish is missing required variables (PACK_NAME, REPO_PATH, SYNC_FOLDERS)."
+    echo "Check config.example.fish for the expected format."
+    set_color normal
+    exit 1
+end
+
 for arg in $argv
     switch $arg
         case "-h" "--help"
@@ -21,6 +39,8 @@ for arg in $argv
             echo "  --dry-run       Show what would be synced and what changed, without"
             echo "                  committing or pushing anything"
             echo "  --stats         Show a summary of logged commits and exit"
+            echo "  --status        Show current branch, unpushed commits, and any"
+            echo "                  uncommitted changes already in the repo, then exit"
             echo ""
             echo "Config is read from config.fish next to this script."
             echo "See config.example.fish for the expected format."
@@ -40,7 +60,7 @@ for arg in $argv
             set last_line (tail -n 1 "$log_file")
 
             set_color cyan
-            echo "=== Commit Log Stats ==="
+            echo "=== $PACK_NAME — Commit Log Stats ==="
             set_color normal
             echo "Total logged commits: $total_lines"
             echo "Commits this month:   $this_month_lines"
@@ -50,25 +70,55 @@ for arg in $argv
             echo "Most recent commit:"
             echo "  $last_line"
             exit 0
+        case "--status"
+            if not test -d "$REPO_PATH"
+                echo "REPO_PATH does not exist: $REPO_PATH"
+                exit 1
+            end
+            if not test -d "$REPO_PATH/.git"
+                echo "REPO_PATH is not a git repository: $REPO_PATH"
+                exit 1
+            end
+
+            cd "$REPO_PATH"
+
+            set_color cyan
+            echo "=== $PACK_NAME — Status ==="
+            set_color normal
+            echo "Current branch: "(git rev-parse --abbrev-ref HEAD)
+
+            set status_pending (git rev-list --count '@{u}..HEAD' 2>/dev/null)
+            if test -n "$status_pending"; and test "$status_pending" -gt 0
+                set_color yellow
+                echo "$status_pending unpushed commit(s):"
+                set_color normal
+                git log --oneline '@{u}..HEAD'
+            else
+                echo "No unpushed commits."
+            end
+
+            echo ""
+            set repo_changes (git status --short)
+            if test -n "$repo_changes"
+                set_color yellow
+                echo "Uncommitted changes already in the repo folder:"
+                set_color normal
+                for line in $repo_changes
+                    echo "$line"
+                end
+                echo ""
+                echo "Note: this doesn't check for new edits still sitting in your"
+                echo "sync source folders that haven't been synced in yet — run the"
+                echo "script normally (no flags) for that."
+            else
+                echo "No uncommitted changes currently in the repo folder."
+                echo ""
+                echo "Note: this doesn't check for new edits still sitting in your"
+                echo "sync source folders that haven't been synced in yet — run the"
+                echo "script normally (no flags) for that."
+            end
+            exit 0
     end
-end
-
-if not test -f "$config_file"
-    set_color red
-    echo "config.fish not found next to commit.fish."
-    echo "Copy config.example.fish to config.fish and edit it first."
-    set_color normal
-    exit 1
-end
-
-source "$config_file"
-
-if not set -q PACK_NAME; or not set -q REPO_PATH; or not set -q SYNC_FOLDERS
-    set_color red
-    echo "config.fish is missing required variables (PACK_NAME, REPO_PATH, SYNC_FOLDERS)."
-    echo "Check config.example.fish for the expected format."
-    set_color normal
-    exit 1
 end
 
 if not test -d "$REPO_PATH"
@@ -135,59 +185,125 @@ function print_banner
     set_color normal
 end
 
+function print_branch
+    set_color yellow
+    echo "Current branch: $current_branch"
+    set_color normal
+    echo ""
+end
+
+function get_head_folder_tag
+    set files_in_commit (git diff-tree --no-commit-id --name-only -r HEAD)
+    set touched
+    for folder in $SYNC_FOLDERS
+        set dest (echo $folder | cut -d ':' -f2)
+        set folder_name (basename "$dest")
+        for f in $files_in_commit
+            if string match -q "$folder_name/*" -- "$f"
+                if not contains "$folder_name" $touched
+                    set -a touched "$folder_name"
+                end
+                break
+            end
+        end
+    end
+    if test (count $touched) -gt 0
+        set tag "[" (string join ", " $touched) "]"
+        string join "" $tag
+    end
+end
+
 print_banner
 
 cd "$REPO_PATH"
 
 set current_branch (git rev-parse --abbrev-ref HEAD)
-set_color yellow
-echo "Current branch: $current_branch"
-set_color normal
-echo ""
+print_branch
 
 set pending_count (git rev-list --count '@{u}..HEAD' 2>/dev/null)
 
 if test -n "$pending_count"; and test "$pending_count" -gt 0
-    set_color yellow
-    echo "You have $pending_count commit(s) not yet pushed from a previous run:"
-    set_color normal
+    while true
+        set pending_count (git rev-list --count '@{u}..HEAD' 2>/dev/null)
 
-    git log --oneline --stat '@{u}..HEAD'
-
-    echo ""
-    echo "Push these now? [Y/n]"
-    read -P "> " pending_push_confirm
-
-    if not test "$pending_push_confirm" = "n"; and not test "$pending_push_confirm" = "N"
-        set_color yellow
-        echo "Pulling latest changes first..."
-        set_color normal
-        git pull --rebase
-
-        if test $status -ne 0
-            set_color red
-            echo "git pull --rebase failed, likely due to a conflict."
-            echo "Resolve it manually, then run 'git rebase --continue' and 'git push'."
+        if test -z "$pending_count"; or test "$pending_count" -eq 0
+            set_color yellow
+            echo "No pending commits left to push."
             set_color normal
-            echo ""
-            echo "Press Enter to close."
-            read
-            exit 1
+            break
         end
 
-        set pending_msgs (git log --format="%s" '@{u}..HEAD')
-
-        git push
-        set_color green
-        echo "Pending commits pushed."
+        set_color yellow
+        echo "You have $pending_count commit(s) not yet pushed from a previous run:"
         set_color normal
 
-        mkdir -p "$log_dir"
-        for msg in $pending_msgs
-            echo "[$run_timestamp] [$PACK_NAME] [PENDING PUSH] $msg" >> "$log_file"
+        git log --oneline --stat '@{u}..HEAD'
+
+        echo ""
+        echo "Push these now? [Y/n], or type 'undo' to remove the last local commit, 'amend' to fix its message:"
+        read -P "> " pending_push_confirm
+
+        if test "$pending_push_confirm" = "undo"
+            git reset --soft HEAD~1
+            set_color yellow
+            echo "Removed the last local commit (its changes are kept, now staged)."
+            set_color normal
+            continue
         end
-    else
-        echo "Skipped. They'll show up again next time you run this script."
+
+        if test "$pending_push_confirm" = "amend"
+            echo "Enter the corrected commit message:"
+            read -P "> " new_msg
+
+            if test -z "$new_msg"
+                echo "No message entered, amend cancelled."
+                continue
+            end
+
+            set folder_tag (get_head_folder_tag)
+            if test -n "$folder_tag"
+                set new_msg "$folder_tag $new_msg"
+            end
+
+            git commit --amend -m "$new_msg"
+            set_color green
+            echo "Commit message updated."
+            set_color normal
+            continue
+        end
+
+        if not test "$pending_push_confirm" = "n"; and not test "$pending_push_confirm" = "N"
+            set_color yellow
+            echo "Pulling latest changes first..."
+            set_color normal
+            git pull --rebase
+
+            if test $status -ne 0
+                set_color red
+                echo "git pull --rebase failed, likely due to a conflict."
+                echo "Resolve it manually, then run 'git rebase --continue' and 'git push'."
+                set_color normal
+                echo ""
+                echo "Press Enter to close."
+                read
+                exit 1
+            end
+
+            set pending_msgs (git log --format="%s" '@{u}..HEAD')
+
+            git push
+            set_color green
+            echo "Pending commits pushed."
+            set_color normal
+
+            mkdir -p "$log_dir"
+            for msg in $pending_msgs
+                echo "[$run_timestamp] [$PACK_NAME] [PENDING PUSH] $msg" >> "$log_file"
+            end
+        else
+            echo "Skipped. They'll show up again next time you run this script."
+        end
+        break
     end
     echo ""
 end
@@ -198,6 +314,7 @@ while true
     if test $first_check -eq 0
         clear
         print_banner
+        print_branch
     end
     set first_check 0
 
@@ -280,7 +397,8 @@ while test $valid_input -eq 0
         echo "  Press Enter with nothing typed to default to a single commit"
         echo "  containing everything that changed."
         echo "  At the commit message prompt, type 'history' to see your last"
-        echo "  5 commit messages and optionally reuse one."
+        echo "  5 commit messages and optionally reuse one, or 'skip' to skip"
+        echo "  that round entirely."
         echo ""
     else
         if test -z "$commit_count"
@@ -301,22 +419,58 @@ for i in (seq 1 $commit_count)
     set_color normal
 
     if test $commit_count -gt 1
-        echo "Enter file(s)/folder(s) for this commit, or press Enter to add everything else remaining:"
-        read -P "> " commit_paths_raw
-    else
-        set commit_paths_raw ""
-    end
+        set remaining_status (git status --short)
+        if test -z "$remaining_status"
+            set commit_paths "-A"
+        else
+            set remaining_paths
+            set idx 1
+            echo "Remaining changed files:"
+            for line in $remaining_status
+                set fpath (string sub -s 4 -- $line)
+                set -a remaining_paths "$fpath"
+                echo "  $idx) $line"
+                set idx (math $idx + 1)
+            end
+            echo "Enter number(s) separated by spaces for this commit, or press Enter to add everything else remaining:"
+            read -P "> " picker_raw
 
-    if test -z "$commit_paths_raw"
-        set commit_paths "-A"
+            if test -z "$picker_raw"
+                set commit_paths "-A"
+            else
+                set commit_paths
+                for n in (string split " " -- $picker_raw)
+                    if string match -qr '^[0-9]+$' -- "$n"
+                        set chosen $remaining_paths[$n]
+                        if test -n "$chosen"
+                            set -a commit_paths "$chosen"
+                        else
+                            echo "Invalid number: $n, skipping."
+                        end
+                    else
+                        echo "Invalid input: $n, skipping."
+                    end
+                end
+                if test (count $commit_paths) -eq 0
+                    echo "No valid selections, defaulting to everything else remaining."
+                    set commit_paths "-A"
+                end
+            end
+        end
     else
-        set commit_paths (string split " " -- $commit_paths_raw)
+        set commit_paths "-A"
     end
 
     set commit_msg ""
+    set skip_round 0
     while test -z "$commit_msg"
-        echo "Enter commit message for commit $i (or type 'history' to reuse a recent one):"
+        echo "Enter commit message for commit $i (or type 'history' to reuse a recent one, 'skip' to skip this round):"
         read -P "> " commit_msg_raw
+
+        if test "$commit_msg_raw" = "skip"
+            set skip_round 1
+            break
+        end
 
         if test "$commit_msg_raw" = "history"
             if test -f "$log_file"
@@ -348,6 +502,13 @@ for i in (seq 1 $commit_count)
         else
             set commit_msg "$commit_msg_raw"
         end
+    end
+
+    if test $skip_round -eq 1
+        set_color yellow
+        echo "Skipped commit $i."
+        set_color normal
+        continue
     end
 
     git add $commit_paths
@@ -395,11 +556,58 @@ if test $commit_num_made -eq 0
     exit 0
 end
 
-echo ""
-set_color yellow
-echo "About to push $commit_num_made commit(s) to branch '$current_branch'. Continue? [Y/n]"
-set_color normal
-read -P "> " push_confirm
+while true
+    if test $commit_num_made -eq 0
+        set_color yellow
+        echo ""
+        echo "No commits left to push."
+        set_color normal
+        echo ""
+        echo "Press Enter to close."
+        read
+        exit 0
+    end
+
+    echo ""
+    set_color yellow
+    echo "About to push $commit_num_made commit(s) to branch '$current_branch'. Continue? [Y/n], or type 'undo'/'amend':"
+    set_color normal
+    read -P "> " push_confirm
+
+    if test "$push_confirm" = "undo"
+        git reset --soft HEAD~1
+        set -e committed_messages[-1]
+        set commit_num_made (count $committed_messages)
+        set_color yellow
+        echo "Removed the last commit made this run (its changes are kept, now staged)."
+        set_color normal
+        continue
+    end
+
+    if test "$push_confirm" = "amend"
+        echo "Enter the corrected commit message:"
+        read -P "> " new_msg
+
+        if test -z "$new_msg"
+            echo "No message entered, amend cancelled."
+            continue
+        end
+
+        set folder_tag (get_head_folder_tag)
+        if test -n "$folder_tag"
+            set new_msg "$folder_tag $new_msg"
+        end
+
+        git commit --amend -m "$new_msg"
+        set committed_messages[-1] "$new_msg"
+        set_color green
+        echo "Commit message updated."
+        set_color normal
+        continue
+    end
+
+    break
+end
 
 if test "$push_confirm" = "n"; or test "$push_confirm" = "N"
     echo "Push skipped. Your commits are saved locally — next time you run this"
