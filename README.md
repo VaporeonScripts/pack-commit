@@ -37,7 +37,7 @@ Options:
 
 What happens when you run it:
 - If a previous run was interrupted mid-rebase, it detects that immediately and tells you to resolve it (`git rebase --continue` or `git rebase --abort`) before doing anything else.
-- It shows your current branch as a quick sanity check before anything happens.
+- It shows your current branch as a quick sanity check before anything happens, along with a "Last synced" line if a previous push has been logged (relative time plus the exact timestamp).
 - If you have commits sitting locally from a previous run that never got pushed (e.g. you answered "n" to the push prompt last time), it shows you exactly what's pending — commit summaries and which files changed — and lets you:
   - push them now
   - skip (they'll show up again next run)
@@ -45,13 +45,13 @@ What happens when you run it:
   - `amend` the last one's message if only the wording was wrong
 - It then syncs your configured folders and shows you what changed (`git status --short`).
 - If nothing changed, it doesn't just exit — it offers to check again right there: type `r` to re-sync and check for changes, `help` for a quick reminder, or press Enter to close. Handy if you're editing files with the script's terminal left open, so you don't need to relaunch it from scratch every time.
-- If something changed, it asks how many commits you want to split the changes into (type `help` at this prompt for a quick reminder of how that works). Any files left staged from outside this run are unstaged first, so each commit round only ever contains what you actually specify for it.
+- If something changed, it asks how many commits you want to split the changes into (type `help` at this prompt for a quick reminder, or `r` to re-sync your folders and re-check for changes — handy if source files are still being written when you reach this point, e.g. a game or launcher still saving on exit). Any files left staged from outside this run are unstaged first, so each commit round only ever contains what you actually specify for it.
   - For a single commit (the default), it stages everything and asks for one message.
   - For multiple commits, instead of typing file paths, you get a **numbered list** of remaining changed files — just type the numbers you want (e.g. `1 3`), space-separated. Press Enter with no numbers to sweep up everything remaining into that commit.
   - At the commit message prompt: type `history` to reuse one of your last 5 logged messages, or `skip` to bail out of that specific round entirely without committing anything for it.
   - A round only counts toward the final push if `git commit` actually created a commit — if nothing was staged for that round, it's skipped rather than falsely counted.
 - Before pushing, it shows the branch you're pushing to and asks for confirmation — same `undo`/`amend` options are available here too, for commits made during this run.
-- Pushes once at the end (auto-rebasing on top of any remote changes first) and shows a summary of what was actually pushed.
+- Pushes once at the end (auto-rebasing on top of any remote changes first) and shows a summary of what was actually pushed, plus an aggregate diffstat (total files/insertions/deletions across every commit made this run — accurate even if you used `undo`, `amend`, or `skip` along the way).
 
 ## Logs
 
