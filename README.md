@@ -15,7 +15,7 @@ A small fish shell script for Minecraft modpack developers who keep their `confi
    ```fish
    cp config.example.fish config.fish
    ```
-3. Edit `config.fish` with your own paths, pack name, and (optionally) credits.
+3. Edit `config.fish` with your own paths, pack name, and (optionally) credits and a version string.
 4. Make the script executable:
    ```fish
    chmod +x commit.fish
