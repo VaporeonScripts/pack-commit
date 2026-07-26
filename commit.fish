@@ -165,6 +165,40 @@ if test $missing_sources -eq 1
     exit 1
 end
 
+function get_last_sync_line
+    if not test -f "$log_file"
+        return
+    end
+    set last_line (tail -n 1 "$log_file")
+    set matches (string match -r '^\[([^\]]+)\]' -- "$last_line")
+    if test (count $matches) -lt 2
+        return
+    end
+    set log_ts $matches[2]
+
+    set log_epoch (date -d "$log_ts" +%s 2>/dev/null)
+    if test -z "$log_epoch"
+        return
+    end
+    set now_epoch (date +%s)
+    set diff (math $now_epoch - $log_epoch)
+
+    if test $diff -lt 60
+        set rel "just now"
+    else if test $diff -lt 3600
+        set mins (math -s0 "$diff / 60")
+        set rel "$mins min ago"
+    else if test $diff -lt 86400
+        set hours (math -s0 "$diff / 3600")
+        set rel "$hours hour(s) ago"
+    else
+        set days (math -s0 "$diff / 86400")
+        set rel "$days day(s) ago"
+    end
+
+    echo "   Last synced: $rel ($log_ts)"
+end
+
 function print_banner
     set_color cyan
     echo ""
@@ -177,6 +211,10 @@ function print_banner
     if set -q DISCORD_LINK
         echo "   Discord: $DISCORD_LINK"
     end
+    if set -q TOOL_VERSION
+        echo "   Version: $TOOL_VERSION"
+    end
+    get_last_sync_line
     if test $dry_run -eq 1
         echo "   [DRY RUN — nothing will be committed or pushed]"
     end
@@ -385,11 +423,35 @@ if test $dry_run -eq 1
 end
 
 set valid_input 0
+set commit_prompt_first 1
 while test $valid_input -eq 0
-    echo "How many separate commits do you want to split these changes into? (default 1, type 'help' for usage info)"
+    if test $commit_prompt_first -eq 0
+        clear
+        print_banner
+        print_branch
+        echo ""
+        set_color yellow
+        echo "Files changed since last commit:"
+        set_color normal
+        git status --short
+        echo ""
+    end
+    set commit_prompt_first 0
+
+    echo "How many separate commits do you want to split these changes into? (default 1, type 'help' for usage info, 'r' to re-sync and check for more changes)"
     read -P "> " commit_count
 
-    if test "$commit_count" = "help"; or test "$commit_count" = "--help"
+    if test "$commit_count" = "r"
+        echo ""
+        set_color cyan
+        echo "Re-syncing..."
+        set_color normal
+        for folder in $SYNC_FOLDERS
+            set src (echo $folder | cut -d ':' -f1)
+            set dest (echo $folder | cut -d ':' -f2)
+            rsync -a --delete "$src/" "$dest/"
+        end
+    else if test "$commit_count" = "help"; or test "$commit_count" = "--help"
         echo ""
         echo "Usage:"
         echo "  Enter a number to split your changes into that many commits, each"
@@ -400,6 +462,8 @@ while test $valid_input -eq 0
         echo "  5 commit messages and optionally reuse one, or 'skip' to skip"
         echo "  that round entirely."
         echo ""
+        echo "Press Enter to continue."
+        read
     else
         if test -z "$commit_count"
             set commit_count 1
@@ -408,6 +472,7 @@ while test $valid_input -eq 0
     end
 end
 
+set start_commit (git rev-parse HEAD)
 git reset > /dev/null
 
 set committed_messages
@@ -649,6 +714,11 @@ set_color green
 echo "Done! Commits pushed this run:"
 set_color normal
 git log --oneline -$commit_num_made
+
+echo ""
+set_color cyan
+git diff --shortstat $start_commit HEAD
+set_color normal
 
 mkdir -p "$log_dir"
 for msg in $committed_messages
