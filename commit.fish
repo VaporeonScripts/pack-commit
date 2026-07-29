@@ -4,6 +4,7 @@ set script_dir (dirname (status --current-filename))
 set config_file "$script_dir/config.fish"
 
 set dry_run 0
+set script_start_time (date +%s)
 set log_dir "$script_dir/logs"
 set log_file "$log_dir/pack-commit.log"
 set run_timestamp (date "+%Y-%m-%d %H:%M:%S")
@@ -146,6 +147,23 @@ if test -d "$REPO_PATH/.git/rebase-merge"; or test -d "$REPO_PATH/.git/rebase-ap
     echo ""
     echo "Press Enter to close."
     read
+    exit 1
+end
+
+set malformed_folders 0
+for folder in $SYNC_FOLDERS
+    set colon_count (string match -ar ":" -- "$folder" | count)
+    if test $colon_count -eq 0
+        set_color red
+        echo "Malformed SYNC_FOLDERS entry (missing ':' separator): $folder"
+        set_color normal
+        set malformed_folders 1
+    end
+end
+
+if test $malformed_folders -eq 1
+    echo "Each SYNC_FOLDERS entry needs a 'source:destination' format."
+    echo "Fix the entries in config.fish and try again."
     exit 1
 end
 
@@ -411,6 +429,7 @@ echo "Files changed since last commit:"
 set_color normal
 git status --short
 echo ""
+set changed_file_count (count (git status --short))
 
 if test $dry_run -eq 1
     set_color cyan
@@ -435,6 +454,7 @@ while test $valid_input -eq 0
         set_color normal
         git status --short
         echo ""
+        set changed_file_count (count (git status --short))
     end
     set commit_prompt_first 0
 
@@ -467,8 +487,26 @@ while test $valid_input -eq 0
     else
         if test -z "$commit_count"
             set commit_count 1
+            set valid_input 1
+        else if string match -qr '^[0-9]+$' -- "$commit_count"
+            if test "$changed_file_count" -eq 1; and test "$commit_count" -gt 1
+                echo ""
+                set_color yellow
+                echo "Only 1 file changed — you can only make 1 commit right now."
+                set_color normal
+                echo "Press Enter to continue (or type 'r'/'help' next time)."
+                read
+            else
+                set valid_input 1
+            end
+        else
+            echo ""
+            set_color yellow
+            echo "Invalid input. Enter a number, 'r', or 'help'."
+            set_color normal
+            echo "Press Enter to continue."
+            read
         end
-        set valid_input 1
     end
 end
 
@@ -490,35 +528,59 @@ for i in (seq 1 $commit_count)
         else
             set remaining_paths
             set idx 1
+            set total_remaining (count $remaining_status)
+            set idx_width (string length -- "$total_remaining")
             echo "Remaining changed files:"
             for line in $remaining_status
                 set fpath (string sub -s 4 -- $line)
                 set -a remaining_paths "$fpath"
-                echo "  $idx) $line"
+                set padded_idx (string pad -w $idx_width -- "$idx")
+                echo "  $padded_idx) $line"
                 set idx (math $idx + 1)
             end
-            echo "Enter number(s) separated by spaces for this commit, or press Enter to add everything else remaining:"
-            read -P "> " picker_raw
 
-            if test -z "$picker_raw"
-                set commit_paths "-A"
-            else
-                set commit_paths
-                for n in (string split " " -- $picker_raw)
-                    if string match -qr '^[0-9]+$' -- "$n"
-                        set chosen $remaining_paths[$n]
-                        if test -n "$chosen"
-                            set -a commit_paths "$chosen"
-                        else
-                            echo "Invalid number: $n, skipping."
-                        end
-                    else
-                        echo "Invalid input: $n, skipping."
-                    end
+            set picker_valid 0
+            set lines_to_clear 0
+            while test $picker_valid -eq 0
+                if test $lines_to_clear -gt 0
+                    tput cuu $lines_to_clear
+                    tput ed
+                    set lines_to_clear 0
                 end
-                if test (count $commit_paths) -eq 0
-                    echo "No valid selections, defaulting to everything else remaining."
+
+                echo "Enter number(s) separated by spaces for this commit, or press Enter to add everything else remaining:"
+                read -P "> " picker_raw
+
+                if test -z "$picker_raw"
                     set commit_paths "-A"
+                    set picker_valid 1
+                else
+                    set commit_paths
+                    set invalid_count 0
+                    for n in (string split " " -- $picker_raw)
+                        if string match -qr '^[0-9]+$' -- "$n"
+                            set chosen $remaining_paths[$n]
+                            if test -n "$chosen"
+                                if not contains "$chosen" $commit_paths
+                                    set -a commit_paths "$chosen"
+                                end
+                            else
+                                echo "Invalid number: $n, skipping."
+                                set invalid_count (math $invalid_count + 1)
+                            end
+                        else
+                            echo "Invalid input: $n, skipping."
+                            set invalid_count (math $invalid_count + 1)
+                        end
+                    end
+                    if test (count $commit_paths) -eq 0
+                        echo "No valid selections were made. Please try again."
+                        echo "Press Enter to continue."
+                        read
+                        set lines_to_clear (math 5 + $invalid_count)
+                    else
+                        set picker_valid 1
+                    end
                 end
             end
         end
@@ -719,6 +781,16 @@ echo ""
 set_color cyan
 git diff --shortstat $start_commit HEAD
 set_color normal
+
+set script_end_time (date +%s)
+set elapsed (math $script_end_time - $script_start_time)
+set elapsed_mins (math -s0 "$elapsed / 60")
+set elapsed_secs (math -s0 "$elapsed % 60")
+if test $elapsed_mins -gt 0
+    echo "Run took "$elapsed_mins"m "$elapsed_secs"s"
+else
+    echo "Run took "$elapsed_secs"s"
+end
 
 mkdir -p "$log_dir"
 for msg in $committed_messages
