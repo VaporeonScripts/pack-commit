@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.3.0 — Safer prompts and a run summary
+
+### Added
+- Validation for `SYNC_FOLDERS` entries in `config.fish`, catching a missing `:` separator before attempting to use malformed paths
+- A restriction preventing commit counts greater than 1 when only a single file has changed, while still allowing `r`/`help` at that prompt
+- Clear rejection messages for invalid input at the "How many commits" prompt, instead of silently defaulting
+- A run duration timer, shown at the end alongside the diffstat summary (measures the whole run including time spent on prompts, not just execution time)
+
+### Fixed
+- The numbered file picker no longer silently defaults to "everything remaining" on invalid non-blank input — it now re-prompts until you give valid input or explicitly press Enter for the default
+- The numbered file picker's alignment no longer breaks once entries reach double digits — index numbers pad to a consistent width based on the total file count
+- The file picker's retry flow now properly shows error messages before clearing them (previously they were erased instantly, before they could be read), and no longer leaves a duplicate prompt line behind afterward
+
 ## v1.2.0 — Re-sync mid-run, sync timestamp, and run summary
 
 ### Added
