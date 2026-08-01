@@ -34,9 +34,11 @@ Options:
 - `--dry-run` — show what would be synced and what changed, without committing or pushing anything
 - `--stats` — show a summary of your logged commit history (total logged, this month, first/most recent) and exit
 - `--status` — show your current branch, any unpushed commits, and any uncommitted changes already in the repo, without syncing or prompting for anything
+- `--info` — combined view of `--status` and `--stats` in one command
+- `--version` — show the tool's version (from `TOOL_VERSION` in `config.fish`, if set) and exit
 
 What happens when you run it:
-- If a previous run was interrupted mid-rebase, it detects that immediately and tells you to resolve it (`git rebase --continue` or `git rebase --abort`) before doing anything else.
+- If a previous run was interrupted mid-rebase, it detects that immediately and tells you to resolve it (`git rebase --continue` or `git rebase --abort`) before doing anything else. Similarly, if a previous run got interrupted mid-stash (rare, but possible if the terminal closed at the wrong moment), it detects the leftover stash and tells you exactly how to recover or discard it.
 - It shows your current branch as a quick sanity check before anything happens, along with a "Last synced" line if a previous push has been logged (relative time plus the exact timestamp).
 - If you have commits sitting locally from a previous run that never got pushed (e.g. you answered "n" to the push prompt last time), it shows you exactly what's pending — commit summaries and which files changed — and lets you:
   - push them now
@@ -51,7 +53,7 @@ What happens when you run it:
   - At the commit message prompt: type `history` to reuse one of your last 5 logged messages, or `skip` to bail out of that specific round entirely without committing anything for it.
   - A round only counts toward the final push if `git commit` actually created a commit — if nothing was staged for that round, it's skipped rather than falsely counted.
 - Before pushing, it shows the branch you're pushing to and asks for confirmation — same `undo`/`amend` options are available here too, for commits made during this run.
-- Pushes once at the end (auto-rebasing on top of any remote changes first) and shows a summary of what was actually pushed, plus an aggregate diffstat (total files/insertions/deletions across every commit made this run — accurate even if you used `undo`, `amend`, or `skip` along the way) and how long the whole run took.
+- Pushes once at the end (auto-rebasing on top of any remote changes first) and shows a summary of what was actually pushed, plus a colorized aggregate diffstat (green insertions, red deletions; total files/insertions/deletions across every commit made this run — accurate even if you used `undo`, `amend`, or `skip` along the way) and how long the whole run took. Each individual commit's own summary is colorized the same way.
 
 ## Logs
 
@@ -76,5 +78,5 @@ Swap `konsole` for your terminal of choice if you're not on KDE. You may need to
 
 - `config.fish` is gitignored so your personal paths and Discord link never end up committed if you fork/publish this tool.
 - The sync step uses `rsync -a --delete`, which mirrors folders exactly — including removing files from the destination that no longer exist in the source. This is intentional (so deleted configs actually get removed from the repo), but be aware of it.
-- Before pushing, the script runs `git pull --rebase` automatically to avoid rejected pushes from diverged branches. If a real conflict comes up, it stops and tells you exactly what to run to resolve it manually.
+- Before pushing, the script only runs `git pull --rebase` if the remote actually has new commits — no wasted work if you're already up to date. When a rebase genuinely is needed and you have uncommitted changes sitting around (e.g. from a `skip`ped commit round), they're automatically stashed first and restored afterward, with the stashed/restored files shown for visibility. If a real conflict comes up during the rebase, it stops and tells you exactly what to run to resolve it manually.
 - `undo` and `amend` only ever act on the single most recent commit — they won't reach further back into history.
