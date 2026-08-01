@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.4.0 — Colorized output, safer pulls, and cleanup
+
+### Added
+- Colorized `git diff --shortstat` output (green insertions, red deletions) in both the aggregate run summary and every individual commit's own summary line
+- `--version` flag
+- `--info` flag, combining `--status` and `--stats` into a single view
+- Detection of a leftover stash from a previous interrupted run, with clear recovery instructions
+- Visibility into exactly which files get temporarily stashed and restored around a rebase
+
+### Fixed
+- Pushes no longer fail when a `skip`ped commit round left uncommitted changes in the working directory — `pull --rebase` now only runs when the remote actually has new commits, and safely stashes/restores uncommitted changes around it when a rebase is genuinely needed
+- Fixed a function-ordering bug that could have caused a crash (instead of showing the intended message) if the mid-rebase or orphaned-stash checks were ever triggered
+
+### Internal
+- Refactored repeated logic into shared functions (sync, output coloring, folder tagging, pause prompts, safe pull/rebase) — no behavior change, just less duplicated code to maintain
+
 ## v1.3.0 — Safer prompts and a run summary
 
 ### Added
