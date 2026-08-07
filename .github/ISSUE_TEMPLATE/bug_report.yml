@@ -50,7 +50,7 @@ body:
     attributes:
       label: Fish shell version
       description: Run `fish --version` to check.
-      placeholder: e.g. fish, version 3.7.1
+      placeholder: e.g. fish, version 4.8.1
     validations:
       required: true
 
