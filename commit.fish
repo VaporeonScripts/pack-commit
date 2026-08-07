@@ -1,7 +1,53 @@
 #!/usr/bin/env fish
 
+function say_ok
+    set_color green
+    echo -n "✓ "
+    set_color normal
+    echo $argv
+end
+
+function say_err
+    set_color red
+    echo -n "✗ "
+    set_color normal
+    echo $argv
+end
+
+function say_warn
+    set_color yellow
+    echo -n "! "
+    set_color normal
+    echo $argv
+end
+
+function say_info
+    set_color cyan
+    echo -n "→ "
+    set_color normal
+    echo $argv
+end
+
 set script_dir (dirname (status --current-filename))
 set config_file "$script_dir/config.fish"
+
+if not test -f "$config_file"
+    say_err "config.fish not found next to commit.fish."
+    echo "Copy config.example.fish to config.fish and edit it first."
+    exit 1
+end
+
+source "$config_file"
+
+if not set -q PACK_NAME; or not set -q REPO_PATH; or not set -q SYNC_FOLDERS
+    say_err "config.fish is missing required variables (PACK_NAME, REPO_PATH, SYNC_FOLDERS)."
+    echo "Check config.example.fish for the expected format."
+    exit 1
+end
+
+if not set -q TOOL_VERSION
+    set TOOL_VERSION "1.5.0"
+end
 
 set dry_run 0
 set script_start_time (date +%s)
@@ -9,22 +55,34 @@ set log_dir "$script_dir/logs"
 set log_file "$log_dir/pack-commit.log"
 set run_timestamp (date "+%Y-%m-%d %H:%M:%S")
 
-if not test -f "$config_file"
-    set_color red
-    echo "config.fish not found next to commit.fish."
-    echo "Copy config.example.fish to config.fish and edit it first."
-    set_color normal
-    exit 1
-end
-
-source "$config_file"
-
-if not set -q PACK_NAME; or not set -q REPO_PATH; or not set -q SYNC_FOLDERS
-    set_color red
-    echo "config.fish is missing required variables (PACK_NAME, REPO_PATH, SYNC_FOLDERS)."
-    echo "Check config.example.fish for the expected format."
-    set_color normal
-    exit 1
+function print_scheduled_tasks
+    set task_file "$log_dir/scheduled_tasks"
+    if test -f "$task_file"
+        set active_tasks
+        set printed_any 0
+        for line in (cat "$task_file")
+            set pid (echo $line | cut -d'|' -f1)
+            set time (echo $line | cut -d'|' -f2)
+            if kill -0 $pid 2>/dev/null
+                set -a active_tasks $line
+                if test $printed_any -eq 0
+                    set_color cyan
+                    echo "--- Scheduled Tasks ---"
+                    set_color normal
+                    set printed_any 1
+                end
+                say_info "Push scheduled for $time (PID: $pid)"
+            end
+        end
+        if test (count $active_tasks) -gt 0
+            printf "%s\n" $active_tasks > "$task_file"
+        else
+            rm -f "$task_file"
+        end
+        if test $printed_any -eq 1
+            echo ""
+        end
+    end
 end
 
 for arg in $argv
@@ -32,43 +90,29 @@ for arg in $argv
         case "-h" "--help"
             echo "Usage: commit.fish [options]"
             echo ""
-            echo "Syncs configured folders into your repo, then walks you through"
-            echo "committing (optionally split across multiple commits) and pushing."
-            echo ""
             echo "Options:"
             echo "  -h, --help      Show this help message and exit"
-            echo "  --dry-run       Show what would be synced and what changed, without"
-            echo "                  committing or pushing anything"
+            echo "  --dry-run       Show what would be synced and what changed"
             echo "  --stats         Show a summary of logged commits and exit"
-            echo "  --status        Show current branch, unpushed commits, and any"
-            echo "                  uncommitted changes already in the repo, then exit"
-            echo "  --info          Combined view of --status and --stats, then exit"
+            echo "  --status        Show current branch and unpushed commits"
+            echo "  --info          Combined view of --status and --stats"
             echo "  --version       Show the tool's version and exit"
-            echo ""
-            echo "Config is read from config.fish next to this script."
-            echo "See config.example.fish for the expected format."
             exit 0
         case "--version"
-            if set -q TOOL_VERSION
-                echo "$PACK_NAME Commit Script — version $TOOL_VERSION"
-            else
-                echo "$PACK_NAME Commit Script — version not set (add TOOL_VERSION to config.fish)"
-            end
+            echo "$PACK_NAME Commit Script — version $TOOL_VERSION"
             exit 0
         case "--dry-run"
             set dry_run 1
         case "--stats"
             if not test -f "$log_file"
-                echo "No log file found yet at $log_file"
+                say_warn "No log file found yet at $log_file"
                 exit 0
             end
-
             set total_lines (count (cat "$log_file"))
             set current_month (date "+%Y-%m")
             set this_month_lines (grep -c "^\[$current_month" "$log_file" 2>/dev/null; or echo 0)
             set first_line (head -n 1 "$log_file")
             set last_line (tail -n 1 "$log_file")
-
             set_color cyan
             echo "=== $PACK_NAME — Commit Log Stats ==="
             set_color normal
@@ -82,109 +126,82 @@ for arg in $argv
             exit 0
         case "--status"
             if not test -d "$REPO_PATH"
-                echo "REPO_PATH does not exist: $REPO_PATH"
+                say_err "REPO_PATH does not exist: $REPO_PATH"
                 exit 1
             end
             if not test -d "$REPO_PATH/.git"
-                echo "REPO_PATH is not a git repository: $REPO_PATH"
+                say_err "REPO_PATH is not a git repository: $REPO_PATH"
                 exit 1
             end
-
             cd "$REPO_PATH"
-
             set_color cyan
             echo "=== $PACK_NAME — Status ==="
             set_color normal
-            echo "Current branch: "(git rev-parse --abbrev-ref HEAD)
-
+            say_info "Current branch: "(git rev-parse --abbrev-ref HEAD)
             set status_pending (git rev-list --count '@{u}..HEAD' 2>/dev/null)
             if test -n "$status_pending"; and test "$status_pending" -gt 0
-                set_color yellow
-                echo "$status_pending unpushed commit(s):"
-                set_color normal
+                say_warn "$status_pending unpushed commit(s):"
                 git log --oneline '@{u}..HEAD'
             else
-                echo "No unpushed commits."
+                say_ok "No unpushed commits."
             end
-
             echo ""
             set repo_changes (git status --short)
             if test -n "$repo_changes"
-                set_color yellow
-                echo "Uncommitted changes already in the repo folder:"
-                set_color normal
+                say_warn "Uncommitted changes already in the repo folder:"
                 for line in $repo_changes
                     echo "$line"
                 end
-                echo ""
-                echo "Note: this doesn't check for new edits still sitting in your"
-                echo "sync source folders that haven't been synced in yet — run the"
-                echo "script normally (no flags) for that."
             else
-                echo "No uncommitted changes currently in the repo folder."
-                echo ""
-                echo "Note: this doesn't check for new edits still sitting in your"
-                echo "sync source folders that haven't been synced in yet — run the"
-                echo "script normally (no flags) for that."
+                say_ok "No uncommitted changes currently in the repo folder."
             end
+            echo ""
+            print_scheduled_tasks
             exit 0
         case "--info"
             if not test -d "$REPO_PATH"
-                echo "REPO_PATH does not exist: $REPO_PATH"
+                say_err "REPO_PATH does not exist: $REPO_PATH"
                 exit 1
             end
             if not test -d "$REPO_PATH/.git"
-                echo "REPO_PATH is not a git repository: $REPO_PATH"
+                say_err "REPO_PATH is not a git repository: $REPO_PATH"
                 exit 1
             end
-
             cd "$REPO_PATH"
-
             set_color cyan
             echo "=== $PACK_NAME — Info ==="
             set_color normal
             echo "Current branch: "(git rev-parse --abbrev-ref HEAD)
-
             set info_pending (git rev-list --count '@{u}..HEAD' 2>/dev/null)
             if test -n "$info_pending"; and test "$info_pending" -gt 0
-                set_color yellow
-                echo "$info_pending unpushed commit(s):"
-                set_color normal
+                say_warn "$info_pending unpushed commit(s):"
                 git log --oneline '@{u}..HEAD'
             else
-                echo "No unpushed commits."
+                say_ok "No unpushed commits."
             end
-
             echo ""
             set info_changes (git status --short)
             if test -n "$info_changes"
-                set_color yellow
-                echo "Uncommitted changes already in the repo folder:"
-                set_color normal
+                say_warn "Uncommitted changes already in the repo folder:"
                 for line in $info_changes
                     echo "$line"
                 end
             else
-                echo "No uncommitted changes currently in the repo folder."
+                say_ok "No uncommitted changes currently in the repo folder."
             end
             echo ""
-            echo "Note: the above doesn't check for new edits still sitting in your"
-            echo "sync source folders that haven't been synced in yet — run the"
-            echo "script normally (no flags) for that."
-
-            echo ""
+            print_scheduled_tasks
             set_color cyan
             echo "--- Commit Log Stats ---"
             set_color normal
             if not test -f "$log_file"
-                echo "No log file found yet at $log_file"
+                say_warn "No log file found yet at $log_file"
             else
                 set info_total_lines (count (cat "$log_file"))
                 set info_current_month (date "+%Y-%m")
                 set info_month_lines (grep -c "^\[$info_current_month" "$log_file" 2>/dev/null; or echo 0)
                 set info_first_line (head -n 1 "$log_file")
                 set info_last_line (tail -n 1 "$log_file")
-
                 echo "Total logged commits: $info_total_lines"
                 echo "Commits this month:   $info_month_lines"
                 echo ""
@@ -198,16 +215,12 @@ for arg in $argv
 end
 
 if not test -d "$REPO_PATH"
-    set_color red
-    echo "REPO_PATH does not exist: $REPO_PATH"
-    set_color normal
+    say_err "REPO_PATH does not exist: $REPO_PATH"
     exit 1
 end
 
 if not test -d "$REPO_PATH/.git"
-    set_color red
-    echo "REPO_PATH is not a git repository: $REPO_PATH"
-    set_color normal
+    say_err "REPO_PATH is not a git repository: $REPO_PATH"
     exit 1
 end
 
@@ -215,16 +228,12 @@ set malformed_folders 0
 for folder in $SYNC_FOLDERS
     set colon_count (string match -ar ":" -- "$folder" | count)
     if test $colon_count -eq 0
-        set_color red
-        echo "Malformed SYNC_FOLDERS entry (missing ':' separator): $folder"
-        set_color normal
+        say_err "Malformed SYNC_FOLDERS entry: $folder"
         set malformed_folders 1
     end
 end
 
 if test $malformed_folders -eq 1
-    echo "Each SYNC_FOLDERS entry needs a 'source:destination' format."
-    echo "Fix the entries in config.fish and try again."
     exit 1
 end
 
@@ -232,15 +241,12 @@ set missing_sources 0
 for folder in $SYNC_FOLDERS
     set src (echo $folder | cut -d ':' -f1)
     if not test -d "$src"
-        set_color red
-        echo "Sync source does not exist: $src"
-        set_color normal
+        say_err "Sync source does not exist: $src"
         set missing_sources 1
     end
 end
 
 if test $missing_sources -eq 1
-    echo "Fix the paths in config.fish and try again."
     exit 1
 end
 
@@ -254,14 +260,12 @@ function get_last_sync_line
         return
     end
     set log_ts $matches[2]
-
     set log_epoch (date -d "$log_ts" +%s 2>/dev/null)
     if test -z "$log_epoch"
         return
     end
     set now_epoch (date +%s)
     set diff (math $now_epoch - $log_epoch)
-
     if test $diff -lt 60
         set rel "just now"
     else if test $diff -lt 3600
@@ -274,7 +278,6 @@ function get_last_sync_line
         set days (math -s0 "$diff / 86400")
         set rel "$days day(s) ago"
     end
-
     echo "   Last synced: $rel ($log_ts)"
 end
 
@@ -284,15 +287,9 @@ function print_banner
     echo "========================================="
     echo "   $PACK_NAME — GitHub Commit Script"
     echo "   Syncs and commits pack changes"
-    if set -q AUTHOR_NAME
-        echo "   Made by $AUTHOR_NAME"
-    end
-    if set -q DISCORD_LINK
-        echo "   Discord: $DISCORD_LINK"
-    end
-    if set -q TOOL_VERSION
-        echo "   Version: $TOOL_VERSION"
-    end
+    echo "   Made by $AUTHOR_NAME"
+    echo "   Discord: $DISCORD_LINK"
+    echo "   Version: $TOOL_VERSION"
     get_last_sync_line
     if test $dry_run -eq 1
         echo "   [DRY RUN — nothing will be committed or pushed]"
@@ -302,14 +299,83 @@ function print_banner
     set_color normal
 end
 
-print_banner
+function schedule_background_push
+    set target_time $argv[1]
+    set target_epoch (date -d "$target_time" +%s 2>/dev/null)
+    if test -z "$target_epoch"
+        return 1
+    end
+    set now_epoch (date +%s)
+    if test $target_epoch -le $now_epoch
+        set target_epoch (math $target_epoch + 86400)
+    end
+    set target_time_fmt (date -d @$target_epoch "+%H:%M")
+    say_ok "Push scheduled for $target_time_fmt in background."
+    say_info "You can continue working or making new commits, safely close this window anytime."
+    mkdir -p "$log_dir"
 
-cd "$REPO_PATH"
+    fish -c "
+        while true
+            set cur_epoch (date +%s)
+            if test \$cur_epoch -ge $target_epoch
+                break
+            end
+            sleep 1
+        end
+        cd '$REPO_PATH'
+        while true
+            set current_state (cat .git/ntr_sync_state 2>/dev/null)
+            if test -z \"\$current_state\"; or test \"\$current_state\" = \"IDLE\"
+                echo \"BG_RUNNING\" > .git/ntr_sync_state
+                sleep 1
+                set verify_state (cat .git/ntr_sync_state 2>/dev/null)
+                if test \"\$verify_state\" = \"BG_RUNNING\"
+                    break
+                end
+            end
+            sleep 3
+        end
+        git fetch --quiet 2>/dev/null
+        if not git pull --rebase --quiet 2>/dev/null
+            echo '[\$(date \"+%Y-%m-%d %H:%M:%S\")] [$PACK_NAME] [SCHEDULED PUSH FAILED] Pull/rebase failed (possible conflict).' >> '$log_file'
+            echo \"IDLE\" > .git/ntr_sync_state
+            exit 1
+        end
+        set sched_msgs (git log --format='%s' '@{u}..HEAD' 2>/dev/null)
+        if git push --quiet 2>/dev/null
+            for msg in \$sched_msgs
+                echo '[\$(date \"+%Y-%m-%d %H:%M:%S\")] [$PACK_NAME] [SCHEDULED PUSH] '\$msg >> '$log_file'
+            end
+        else
+            echo '[\$(date \"+%Y-%m-%d %H:%M:%S\")] [$PACK_NAME] [SCHEDULED PUSH FAILED] Push failed (network or auth issue).' >> '$log_file'
+        end
+        echo \"IDLE\" > .git/ntr_sync_state
+    " >/dev/null 2>&1 &
+
+    set bg_pid $last_pid
+    echo "$bg_pid|$target_time_fmt" >> "$log_dir/scheduled_tasks"
+
+    disown
+    return 0
+end
 
 function print_branch
     set_color yellow
     echo "Current branch: $current_branch"
     set_color normal
+    echo ""
+end
+
+function redraw_sync_status
+    clear
+    print_banner
+    print_branch
+    print_scheduled_tasks
+    echo ""
+    set_color yellow
+    echo "Files changed since last commit:"
+    set_color normal
+    git status --short
     echo ""
 end
 
@@ -332,43 +398,31 @@ end
 function safe_pull_rebase
     git fetch --quiet 2>/dev/null
     set behind_count (git rev-list --count 'HEAD..@{u}' 2>/dev/null)
-
     if test -z "$behind_count"; or test "$behind_count" -eq 0
         return 0
     end
-
     set had_stash 0
     set local_changes (git status --short)
     if test -n "$local_changes"
-        set_color yellow
-        echo "Temporarily stashing uncommitted changes before pulling:"
+        say_info "Temporarily stashing uncommitted changes before pulling:"
         for line in $local_changes
             echo "  $line"
         end
-        set_color normal
-        git stash push -u -m "pack-commit auto-stash before rebase" > /dev/null
+        git stash push -u -m "commit-script auto-stash before rebase" > /dev/null
         set had_stash 1
     end
-
     git pull --rebase
     set pull_status $status
-
     if test $had_stash -eq 1
         if git stash pop > /dev/null
-            set_color green
-            echo "Restored stashed changes:"
+            say_ok "Restored stashed changes:"
             for line in $local_changes
                 echo "  $line"
             end
-            set_color normal
         else
-            set_color red
-            echo "Warning: could not automatically restore your stashed changes."
-            echo "Run 'git stash list' and 'git stash pop' manually to recover them."
-            set_color normal
+            say_err "Could not automatically restore your stashed changes."
         end
     end
-
     return $pull_status
 end
 
@@ -434,507 +488,701 @@ function get_head_folder_tag
     compute_folder_tag (git diff-tree --no-commit-id --name-only -r HEAD)
 end
 
+function set_sync_state
+    echo $argv[1] > "$REPO_PATH/.git/ntr_sync_state"
+end
+
+function cleanup_sync_state --on-event fish_exit --on-signal INT
+    rm -f "$REPO_PATH/.git/ntr_sync_state"
+end
+
+clear
+print_banner
+cd "$REPO_PATH"
+set_sync_state "ACTIVE"
+
 if test -d "$REPO_PATH/.git/rebase-merge"; or test -d "$REPO_PATH/.git/rebase-apply"
-    set_color red
-    echo "A rebase is already in progress in $REPO_PATH."
-    echo "Resolve it first: go into the repo and run either"
-    echo "  git rebase --continue"
-    echo "or, to back out entirely:"
-    echo "  git rebase --abort"
-    set_color normal
+    say_err "A rebase is already in progress in $REPO_PATH."
     pause_close 1
 end
 
-set orphaned_stash (git -C "$REPO_PATH" stash list 2>/dev/null | string match "*pack-commit auto-stash*")
+set orphaned_stash (git -C "$REPO_PATH" stash list 2>/dev/null | string match "*commit-script auto-stash*")
 if test -n "$orphaned_stash"
-    set_color red
-    echo "Found a leftover stash from a previous interrupted run:"
-    set_color normal
+    say_err "Found a leftover stash from a previous interrupted run:"
     for line in $orphaned_stash
         echo "  $line"
     end
-    echo "This likely means a previous run got interrupted mid-pull. Recover it with:"
-    echo "  cd $REPO_PATH && git stash pop"
-    echo "or discard it (only if you're sure you don't need it) with:"
-    echo "  cd $REPO_PATH && git stash drop"
-    set_color normal
     pause_close 1
 end
 
 set current_branch (git rev-parse --abbrev-ref HEAD)
 print_branch
+print_scheduled_tasks
 
-set pending_count (git rev-list --count '@{u}..HEAD' 2>/dev/null)
+set skip_pending_print 0
+while true
+    set pending_count (git rev-list --count '@{u}..HEAD' 2>/dev/null)
+    if test -z "$pending_count"; or test "$pending_count" -eq 0
+        break
+    end
 
-if test -n "$pending_count"; and test "$pending_count" -gt 0
-    while true
-        set pending_count (git rev-list --count '@{u}..HEAD' 2>/dev/null)
-
-        if test -z "$pending_count"; or test "$pending_count" -eq 0
-            set_color yellow
-            echo "No pending commits left to push."
-            set_color normal
-            break
-        end
-
-        set_color yellow
-        echo "You have $pending_count commit(s) not yet pushed from a previous run:"
-        set_color normal
-
+    if test $skip_pending_print -eq 0
+        say_warn "You have $pending_count commit(s) not yet pushed from a previous run:"
         git log --oneline --stat '@{u}..HEAD'
-
         echo ""
-        echo "Push these now? [Y/n], or type 'undo' to remove the last local commit, 'amend' to fix its message:"
-        read -P "> " pending_push_confirm
-
-        if test "$pending_push_confirm" = "undo"
-            git reset --soft HEAD~1
-            set_color yellow
-            echo "Removed the last local commit (its changes are kept, now staged)."
-            set_color normal
-            continue
-        end
-
-        if test "$pending_push_confirm" = "amend"
-            echo "Enter the corrected commit message:"
-            read -P "> " new_msg
-
-            if test -z "$new_msg"
-                echo "No message entered, amend cancelled."
-                continue
-            end
-
-            set folder_tag (get_head_folder_tag)
-            if test -n "$folder_tag"
-                set new_msg "$folder_tag $new_msg"
-            end
-
-            git commit --amend -m "$new_msg"
-            set_color green
-            echo "Commit message updated."
-            set_color normal
-            continue
-        end
-
-        if not test "$pending_push_confirm" = "n"; and not test "$pending_push_confirm" = "N"
-            set_color yellow
-            echo "Pulling latest changes first..."
-            set_color normal
-
-            if not safe_pull_rebase
-                set_color red
-                echo "git pull --rebase failed, likely due to a conflict."
-                echo "Resolve it manually, then run 'git rebase --continue' and 'git push'."
-                set_color normal
-                pause_close 1
-            end
-
-            set pending_msgs (git log --format="%s" '@{u}..HEAD')
-
-            git push
-            set_color green
-            echo "Pending commits pushed."
-            set_color normal
-
-            mkdir -p "$log_dir"
-            for msg in $pending_msgs
-                echo "[$run_timestamp] [$PACK_NAME] [PENDING PUSH] $msg" >> "$log_file"
-            end
-        else
-            echo "Skipped. They'll show up again next time you run this script."
-        end
-        break
-    end
-    echo ""
-end
-
-set no_changes_choice ""
-set first_check 1
-while true
-    if test $first_check -eq 0
-        clear
-        print_banner
-        print_branch
-    end
-    set first_check 0
-
-    do_sync
-
-    set changes (git status --short)
-
-    if test -n "$changes"
-        break
     end
 
-    if test $dry_run -eq 1
-        set_color yellow
-        echo "No changes detected. (dry run, nothing to sync anyway)"
-        set_color normal
-        pause_close 0
-    end
+    set skip_pending_print 0
 
-    set_color yellow
-    echo "No changes detected since last commit."
-    set_color normal
-    echo "Press Enter to close, type 'r' to check again, or 'help' for usage info:"
-    read -P "> " no_changes_choice
+    echo "Push these now? [Y/n], 'undo' (last), 'undo all', 'amend' (last), 'undo N'/'amend N' (e.g. 'amend 1'), or 'schedule HH:MM':"
+    read -P "> " pending_push_confirm
 
-    if test "$no_changes_choice" = "help"; or test "$no_changes_choice" = "--help"
-        echo ""
-        echo "Usage:"
-        echo "  'r'     — re-sync your folders and check for changes again"
-        echo "  Enter   — close the script"
-        echo ""
-        pause_continue
-    else if test -z "$no_changes_choice"
-        pause_close 0
-    end
-end
-
-echo ""
-set_color yellow
-echo "Files changed since last commit:"
-set_color normal
-git status --short
-echo ""
-set changed_file_count (count (git status --short))
-
-if test $dry_run -eq 1
-    set_color cyan
-    echo "Dry run complete. No commits or pushes were made."
-    set_color normal
-    pause_close 0
-end
-
-set valid_input 0
-set commit_prompt_first 1
-while test $valid_input -eq 0
-    if test $commit_prompt_first -eq 0
-        clear
-        print_banner
-        print_branch
-        echo ""
-        set_color yellow
-        echo "Files changed since last commit:"
-        set_color normal
-        git status --short
-        echo ""
-        set changed_file_count (count (git status --short))
-    end
-    set commit_prompt_first 0
-
-    echo "How many separate commits do you want to split these changes into? (default 1, type 'help' for usage info, 'r' to re-sync and check for more changes)"
-    read -P "> " commit_count
-
-    if test "$commit_count" = "r"
-        echo ""
-        set_color cyan
-        echo "Re-syncing..."
-        set_color normal
-        do_sync
-    else if test "$commit_count" = "help"; or test "$commit_count" = "--help"
-        echo ""
-        echo "Usage:"
-        echo "  Enter a number to split your changes into that many commits, each"
-        echo "  with its own file selection and message."
-        echo "  Press Enter with nothing typed to default to a single commit"
-        echo "  containing everything that changed."
-        echo "  At the commit message prompt, type 'history' to see your last"
-        echo "  5 commit messages and optionally reuse one, or 'skip' to skip"
-        echo "  that round entirely."
-        echo ""
-        pause_continue
-    else
-        if test -z "$commit_count"
-            set commit_count 1
-            set valid_input 1
-        else if string match -qr '^[0-9]+$' -- "$commit_count"
-            if test "$changed_file_count" -eq 1; and test "$commit_count" -gt 1
-                echo ""
-                set_color yellow
-                echo "Only 1 file changed — you can only make 1 commit right now."
-                set_color normal
-                pause_continue "Press Enter to continue (or type 'r'/'help' next time)."
-            else
-                set valid_input 1
-            end
-        else
+    if string match -qr '^schedule ([0-9]{1,2}:[0-9]{2})$' -- "$pending_push_confirm"
+        set sched_time_str (string replace -r '^schedule ' '' -- "$pending_push_confirm")
+        if schedule_background_push "$sched_time_str"
             echo ""
-            set_color yellow
-            echo "Invalid input. Enter a number, 'r', or 'help'."
-            set_color normal
-            pause_continue
-        end
-    end
-end
-
-set start_commit (git rev-parse HEAD)
-git reset > /dev/null
-
-set committed_messages
-
-for i in (seq 1 $commit_count)
-    echo ""
-    set_color cyan
-    echo "--- Commit $i of $commit_count ---"
-    set_color normal
-
-    if test $commit_count -gt 1
-        set remaining_status (git status --short)
-        if test -z "$remaining_status"
-            set commit_paths "-A"
-        else
-            set remaining_paths
-            set idx 1
-            set total_remaining (count $remaining_status)
-            set idx_width (string length -- "$total_remaining")
-            echo "Remaining changed files:"
-            for line in $remaining_status
-                set fpath (string sub -s 4 -- $line)
-                set -a remaining_paths "$fpath"
-                set padded_idx (string pad -w $idx_width -- "$idx")
-                echo "  $padded_idx) $line"
-                set idx (math $idx + 1)
-            end
-
-            set picker_valid 0
-            set lines_to_clear 0
-            while test $picker_valid -eq 0
-                if test $lines_to_clear -gt 0
-                    tput cuu $lines_to_clear
-                    tput ed
-                    set lines_to_clear 0
-                end
-
-                echo "Enter number(s) separated by spaces for this commit, or press Enter to add everything else remaining:"
-                read -P "> " picker_raw
-
-                if test -z "$picker_raw"
-                    set commit_paths "-A"
-                    set picker_valid 1
-                else
-                    set commit_paths
-                    set invalid_count 0
-                    for n in (string split " " -- $picker_raw)
-                        if string match -qr '^[0-9]+$' -- "$n"
-                            set chosen $remaining_paths[$n]
-                            if test -n "$chosen"
-                                if not contains "$chosen" $commit_paths
-                                    set -a commit_paths "$chosen"
-                                end
-                            else
-                                echo "Invalid number: $n, skipping."
-                                set invalid_count (math $invalid_count + 1)
-                            end
-                        else
-                            echo "Invalid input: $n, skipping."
-                            set invalid_count (math $invalid_count + 1)
-                        end
-                    end
-                    if test (count $commit_paths) -eq 0
-                        echo "No valid selections were made. Please try again."
-                        pause_continue
-                        set lines_to_clear (math 5 + $invalid_count)
-                    else
-                        set picker_valid 1
-                    end
-                end
-            end
-        end
-    else
-        set commit_paths "-A"
-    end
-
-    set commit_msg ""
-    set skip_round 0
-    while test -z "$commit_msg"
-        echo "Enter commit message for commit $i (or type 'history' to reuse a recent one, 'skip' to skip this round):"
-        read -P "> " commit_msg_raw
-
-        if test "$commit_msg_raw" = "skip"
-            set skip_round 1
+            pause_continue "Press Enter to proceed to sync."
             break
         end
-
-        if test "$commit_msg_raw" = "history"
-            if test -f "$log_file"
-                set_color cyan
-                echo "Last 5 commit messages:"
-                set_color normal
-                set recent_msgs (tail -n 5 "$log_file")
-                set idx 1
-                for line in $recent_msgs
-                    echo "  $idx) $line"
-                    set idx (math $idx + 1)
-                end
-                echo "Type a number to reuse one, or type a new message:"
-                read -P "> " history_choice
-
-                if string match -qr '^[0-9]+$' -- "$history_choice"
-                    set chosen_line $recent_msgs[$history_choice]
-                    if test -n "$chosen_line"
-                        set commit_msg (string replace -r '^\[.*?\]\s*\[.*?\]\s*(\[PENDING PUSH\]\s*)?' '' -- "$chosen_line")
-                    else
-                        echo "Invalid number, try again."
-                    end
-                else
-                    set commit_msg "$history_choice"
-                end
-            else
-                echo "No log file yet, nothing to reuse."
-            end
-        else
-            set commit_msg "$commit_msg_raw"
-        end
-    end
-
-    if test $skip_round -eq 1
-        set_color yellow
-        echo "Skipped commit $i."
-        set_color normal
+        say_err "Couldn't parse time. Use HH:MM format."
+        set skip_pending_print 1
         continue
     end
 
-    git add $commit_paths
-
-    set staged_files (git diff --cached --name-only)
-    set folder_tag (compute_folder_tag $staged_files)
-    if test -n "$folder_tag"
-        set commit_msg "$folder_tag $commit_msg"
+    if test "$pending_push_confirm" = "undo all"
+        git reset --soft "HEAD~$pending_count"
+        say_ok "Removed all pending commits (changes are kept, now staged)."
+        continue
     end
 
-    set commit_output (git commit -m "$commit_msg")
-    set commit_status $status
-
-    if test $commit_status -eq 0
-        for line in $commit_output
-            if string match -q "*insertion*" -- $line; or string match -q "*deletion*" -- $line
-                colorize_stat_line "$line"
-            else
-                echo "$line"
-            end
-        end
-        set -a committed_messages "$commit_msg"
-    else
-        set_color yellow
-        echo "Nothing was actually committed for this round (no staged changes matched), skipping."
-        set_color normal
-    end
-end
-
-set commit_num_made (count $committed_messages)
-
-if test $commit_num_made -eq 0
-    set_color yellow
-    echo ""
-    echo "No commits were made. Nothing to push."
-    set_color normal
-    pause_close 0
-end
-
-while true
-    if test $commit_num_made -eq 0
-        set_color yellow
-        echo ""
-        echo "No commits left to push."
-        set_color normal
-        pause_close 0
-    end
-
-    echo ""
-    set_color yellow
-    echo "About to push $commit_num_made commit(s) to branch '$current_branch'. Continue? [Y/n], or type 'undo'/'amend':"
-    set_color normal
-    read -P "> " push_confirm
-
-    if test "$push_confirm" = "undo"
+    if test "$pending_push_confirm" = "undo"
         git reset --soft HEAD~1
-        set -e committed_messages[-1]
-        set commit_num_made (count $committed_messages)
-        set_color yellow
-        echo "Removed the last commit made this run (its changes are kept, now staged)."
-        set_color normal
+        say_ok "Removed the last local commit (changes kept staged)."
         continue
     end
 
-    if test "$push_confirm" = "amend"
+    if test "$pending_push_confirm" = "amend"
         echo "Enter the corrected commit message:"
         read -P "> " new_msg
-
         if test -z "$new_msg"
-            echo "No message entered, amend cancelled."
+            say_warn "Cancelled."
+            set skip_pending_print 1
             continue
         end
-
         set folder_tag (get_head_folder_tag)
         if test -n "$folder_tag"
             set new_msg "$folder_tag $new_msg"
         end
-
         git commit --amend -m "$new_msg"
-        set committed_messages[-1] "$new_msg"
-        set_color green
-        echo "Commit message updated."
-        set_color normal
+        say_ok "Commit message updated."
+        set skip_pending_print 1
         continue
     end
 
+    if string match -qr '^(undo|amend) ([0-9]+)$' -- "$pending_push_confirm"
+        set action (string replace -r '^(undo|amend) ([0-9]+)$' '$1' -- "$pending_push_confirm")
+        set target_idx (string replace -r '^(undo|amend) ([0-9]+)$' '$2' -- "$pending_push_confirm")
+
+        if test $target_idx -ge 1; and test $target_idx -le $pending_count
+            set session_commits (git rev-list --reverse --max-count=$pending_count HEAD)
+            set target_hash (string sub -l 7 $session_commits[$target_idx])
+
+            if test "$action" = "amend"
+                echo "Enter corrected message for commit $target_idx:"
+                read -P "> " new_msg
+                if test -z "$new_msg"; say_warn "Cancelled."; set skip_pending_print 1; continue; end
+
+                set staged_files (git diff-tree --no-commit-id --name-only -r $target_hash)
+                set folder_tag (compute_folder_tag $staged_files)
+                if test -n "$folder_tag"; and not string match -q "$folder_tag*" -- "$new_msg"
+                    set new_msg "$folder_tag $new_msg"
+                end
+
+                if test $target_idx -eq $pending_count
+                    if git commit -q --amend -m "$new_msg"
+                        say_ok "Commit $target_idx amended."
+                    else
+                        say_err "Amend failed."
+                    end
+                else
+                    set had_rebase_stash 0
+                    set check_status (git status --short)
+                    if test (count $check_status) -gt 0
+                        git stash push -q -u -m "commit-script temp stash before rebase"
+                        set had_rebase_stash 1
+                    end
+
+                    if not env GIT_SEQUENCE_EDITOR="perl -pi -e 's/^pick $target_hash\w*/edit $target_hash/'" git rebase -i -q "HEAD~$pending_count" >/dev/null 2>&1
+                        say_err "Rebase failed to start. Aborting."
+                        git rebase --abort >/dev/null 2>&1
+                        if test $had_rebase_stash -eq 1; git stash pop -q >/dev/null 2>&1; end
+                        set skip_pending_print 1
+                        continue
+                    end
+
+                    if not git commit -q --amend -m "$new_msg"
+                        say_err "Amend failed. Aborting rebase."
+                        git rebase --abort >/dev/null 2>&1
+                        if test $had_rebase_stash -eq 1; git stash pop -q >/dev/null 2>&1; end
+                        set skip_pending_print 1
+                        continue
+                    end
+
+                    if not git rebase --continue >/dev/null 2>&1
+                        say_err "Rebase failed to complete (possible conflict). Aborting."
+                        git rebase --abort >/dev/null 2>&1
+                        if test $had_rebase_stash -eq 1; git stash pop -q >/dev/null 2>&1; end
+                        set skip_pending_print 1
+                        continue
+                    end
+
+                    if test $had_rebase_stash -eq 1
+                        git stash pop -q >/dev/null 2>&1
+                    end
+
+                    say_ok "Commit $target_idx amended."
+                end
+                set skip_pending_print 1
+            else
+                if test $target_idx -eq $pending_count
+                    git reset -q --soft HEAD~1
+                    say_ok "Commit $target_idx undone. Its changes are staged."
+                else
+                    set had_rebase_stash 0
+                    set check_status (git status --short)
+                    if test (count $check_status) -gt 0
+                        git stash push -q -u -m "commit-script temp stash before rebase"
+                        set had_rebase_stash 1
+                    end
+
+                    set current_head (git rev-parse HEAD)
+
+                    if not env GIT_SEQUENCE_EDITOR="perl -pi -e 's/^pick $target_hash\w*/drop/'" git rebase -i -q "HEAD~$pending_count" >/dev/null 2>&1
+                        say_err "Failed to drop commit. Aborting rebase."
+                        git rebase --abort >/dev/null 2>&1
+                        if test $had_rebase_stash -eq 1; git stash pop -q >/dev/null 2>&1; end
+                        set skip_pending_print 1
+                        continue
+                    end
+
+                    set new_head (git rev-parse HEAD)
+                    git reset -q --hard $current_head
+                    git reset -q --soft $new_head
+
+                    if test $had_rebase_stash -eq 1
+                        git stash pop -q >/dev/null 2>&1
+                    end
+
+                    say_ok "Commit $target_idx undone. Its changes are staged."
+                end
+                set skip_pending_print 1
+            end
+        else
+            say_warn "Invalid commit number. Must be between 1 and $pending_count."
+            set skip_pending_print 1
+        end
+        continue
+    end
+
+    if not test "$pending_push_confirm" = "n"; and not test "$pending_push_confirm" = "N"
+        say_info "Pulling latest changes first..."
+        if not safe_pull_rebase
+            say_err "git pull --rebase failed, likely due to a conflict."
+            pause_close 1
+        end
+        set pending_msgs (git log --format="%s" '@{u}..HEAD')
+        git push
+        say_ok "Pending commits pushed."
+        mkdir -p "$log_dir"
+        for msg in $pending_msgs
+            echo "[$run_timestamp] [$PACK_NAME] [PENDING PUSH] $msg" >> "$log_file"
+        end
+    else
+        say_warn "Skipped."
+    end
+    echo ""
+    pause_continue "Press Enter to proceed to sync."
     break
 end
 
-if test "$push_confirm" = "n"; or test "$push_confirm" = "N"
-    echo "Push skipped. Your commits are saved locally — next time you run this"
-    echo "script, it'll offer to push them for you."
-    pause_close 0
-end
+while true
+    clear
+    print_banner
+    print_branch
+    print_scheduled_tasks
 
-set_color yellow
-echo ""
-echo "Pulling latest changes first..."
-set_color normal
+    set no_changes_choice ""
+    while true
+        do_sync
+        set changes (git status --short)
+        if test -n "$changes"
+            break
+        end
 
-if not safe_pull_rebase
-    set_color red
+        if test $dry_run -eq 1
+            say_info "No changes detected. (dry run)"
+            pause_close 0
+        end
+
+        say_warn "No changes detected since last commit."
+        echo "Press Enter to close, type 'r' to check again, or 'help' for usage info:"
+
+        set_sync_state "IDLE"
+        read -P "> " no_changes_choice
+
+        set printed_wait 0
+        while true
+            set check_state (cat "$REPO_PATH/.git/ntr_sync_state" 2>/dev/null)
+            if test "$check_state" != "BG_RUNNING"
+                break
+            end
+            if test $printed_wait -eq 0
+                echo ""
+                say_info "Waiting for background scheduled task to finish pushing..."
+                set printed_wait 1
+            end
+            sleep 2
+        end
+        set_sync_state "ACTIVE"
+
+        if test "$no_changes_choice" = "help"; or test "$no_changes_choice" = "--help"
+            echo ""
+            echo "Usage:"
+            echo "  'r'     — re-sync folders and check for changes again"
+            echo "  Enter   — close the script"
+            echo ""
+            pause_continue
+            clear
+            print_banner
+            print_branch
+            print_scheduled_tasks
+        else if test -z "$no_changes_choice"
+            pause_close 0
+        else if test "$no_changes_choice" = "r"
+            clear
+            print_banner
+            print_branch
+            print_scheduled_tasks
+        end
+    end
+
     echo ""
-    echo "git pull --rebase failed, likely due to a conflict."
-    echo "Resolve it manually (git status will show you what's conflicted), then run:"
-    echo "  git rebase --continue"
-    echo "  git push"
+    set_color yellow
+    echo "Files changed since last commit:"
     set_color normal
-    pause_close 1
+    git status --short
+    echo ""
+    set changed_file_count (count (git status --short))
+
+    if test $dry_run -eq 1
+        say_info "Dry run complete. No commits or pushes made."
+        pause_close 0
+    end
+
+    set valid_input 0
+    set do_resync 0
+    while test $valid_input -eq 0
+        echo "How many separate commits do you want to split these changes into? (default 1, type 'help' for info, 'r' to re-sync)"
+        read -P "> " commit_count
+
+        if test "$commit_count" = "r"
+            echo ""
+            say_info "Re-syncing..."
+            set do_resync 1
+            break
+        else if test "$commit_count" = "help"; or test "$commit_count" = "--help"
+            echo ""
+            echo "Usage:"
+            echo "  Enter a number to split your changes into multiple commits."
+            echo "  Press Enter for 1 commit containing everything."
+            echo ""
+            pause_continue
+            redraw_sync_status
+        else
+            if test -z "$commit_count"
+                set commit_count 1
+                set valid_input 1
+            else if string match -qr '^[0-9]+$' -- "$commit_count"
+                if test "$changed_file_count" -eq 1; and test "$commit_count" -gt 1
+                    echo ""
+                    say_warn "Only 1 file changed."
+                    pause_continue
+                    redraw_sync_status
+                else
+                    set valid_input 1
+                end
+            else
+                echo ""
+                say_warn "Invalid input."
+                pause_continue
+                redraw_sync_status
+            end
+        end
+    end
+
+    if test $do_resync -eq 1
+        continue
+    end
+
+    git reset > /dev/null
+    set committed_messages
+
+    for i in (seq 1 $commit_count)
+        echo ""
+        set_color cyan
+        echo "--- Commit $i of $commit_count ---"
+        set_color normal
+        if test $commit_count -gt 1
+            set remaining_status (git status --short)
+            if test -z "$remaining_status"
+                set commit_paths "-A"
+            else
+                set remaining_paths
+                set idx 1
+                set total_remaining (count $remaining_status)
+                set idx_width (string length -- "$total_remaining")
+                echo "Remaining changed files:"
+                for line in $remaining_status
+                    set fpath (string sub -s 4 -- $line)
+                    set -a remaining_paths "$fpath"
+                    set padded_idx (string pad -w $idx_width -- "$idx")
+                    echo "  $padded_idx) $line"
+                    set idx (math $idx + 1)
+                end
+                set picker_valid 0
+                set lines_to_clear 0
+                while test $picker_valid -eq 0
+                    if test $lines_to_clear -gt 0
+                        tput cuu $lines_to_clear
+                        tput ed
+                        set lines_to_clear 0
+                    end
+                    echo "Enter numbers separated by spaces, or press Enter for everything remaining:"
+                    read -P "> " picker_raw
+                    if test -z "$picker_raw"
+                        set commit_paths "-A"
+                        set picker_valid 1
+                    else
+                        set commit_paths
+                        set invalid_count 0
+                        for n in (string split " " -- $picker_raw)
+                            if string match -qr '^[0-9]+$' -- "$n"
+                                set chosen $remaining_paths[$n]
+                                if test -n "$chosen"
+                                    if not contains "$chosen" $commit_paths
+                                        set -a commit_paths "$chosen"
+                                    end
+                                else
+                                    echo "Invalid number: $n, skipping."
+                                    set invalid_count (math $invalid_count + 1)
+                                end
+                            else
+                                echo "Invalid input: $n, skipping."
+                                set invalid_count (math $invalid_count + 1)
+                            end
+                        end
+                        if test (count $commit_paths) -eq 0
+                            echo "No valid selections were made."
+                            pause_continue
+                            set lines_to_clear (math 5 + $invalid_count)
+                        else
+                            set picker_valid 1
+                        end
+                    end
+                end
+            end
+        else
+            set commit_paths "-A"
+        end
+
+        set commit_msg ""
+        set skip_round 0
+        while test -z "$commit_msg"
+            echo "Enter commit message for commit $i (or type 'history' to reuse a recent one, 'skip' to skip this round):"
+            read -P "> " commit_msg_raw
+            if test "$commit_msg_raw" = "skip"
+                set skip_round 1
+                break
+            end
+            if test "$commit_msg_raw" = "history"
+                if test -f "$log_file"
+                    set_color cyan
+                    echo "Last 5 commit messages:"
+                    set_color normal
+                    set recent_msgs (tail -n 5 "$log_file")
+                    set idx 1
+                    for line in $recent_msgs
+                        echo "  $idx) $line"
+                        set idx (math $idx + 1)
+                    end
+                    echo "Type a number to reuse one, or type a new message:"
+                    read -P "> " history_choice
+
+                    if string match -qr '^[0-9]+$' -- "$history_choice"
+                        set chosen_line $recent_msgs[$history_choice]
+                        if test -n "$chosen_line"
+                            set commit_msg (string replace -r '^\[.*?\]\s*\[.*?\]\s*(\[(PENDING PUSH|SCHEDULED PUSH|SCHEDULED)\]\s*)?' '' -- "$chosen_line")
+
+                            set valid_tags
+                            for folder in $SYNC_FOLDERS
+                                set -a valid_tags (basename (echo "$folder" | cut -d ':' -f2))
+                            end
+                            set tag_pattern (string join "|" $valid_tags)
+                            set tag_regex '^\[('"$tag_pattern"')(,\s*('"$tag_pattern"'))*\]\s*'
+
+                            set commit_msg (string replace -r $tag_regex '' -- "$commit_msg")
+                        else
+                            echo "Invalid number, try again."
+                        end
+                    else
+                        set commit_msg "$history_choice"
+                    end
+                else
+                    echo "No log file yet."
+                end
+            else
+                set commit_msg "$commit_msg_raw"
+            end
+        end
+
+        if test $skip_round -eq 1
+            say_warn "Skipped commit $i."
+            continue
+        end
+
+        git add $commit_paths
+        set staged_files (git diff --cached --name-only)
+        set folder_tag (compute_folder_tag $staged_files)
+        if test -n "$folder_tag"
+            set commit_msg "$folder_tag $commit_msg"
+        end
+        set commit_output (git commit -m "$commit_msg")
+        set commit_status $status
+
+        if test $commit_status -eq 0
+            for line in $commit_output
+                if string match -q "*insertion*" -- $line; or string match -q "*deletion*" -- $line
+                    colorize_stat_line "$line"
+                else
+                    echo "$line"
+                end
+            end
+            set -a committed_messages "$commit_msg"
+        else
+            say_warn "Nothing was actually committed for this round."
+        end
+    end
+
+    set commit_num_made (count $committed_messages)
+    set goto_sync_check 0
+
+    while true
+        if test $commit_num_made -eq 0
+            say_warn "No commits left to push."
+            set goto_sync_check 1
+            break
+        end
+
+        echo ""
+        set_color yellow
+        echo "About to push $commit_num_made commit(s). [Y/n], 'undo' (last), 'undo all', 'amend' (last), 'undo N'/'amend N' (e.g. 'amend 1'), or 'schedule HH:MM':"
+        set_color normal
+        read -P "> " push_confirm
+
+        if string match -qr '^schedule ([0-9]{1,2}:[0-9]{2})$' -- "$push_confirm"
+            set sched_time_str (string replace -r '^schedule ' '' -- "$push_confirm")
+            if schedule_background_push "$sched_time_str"
+                for msg in $committed_messages
+                    echo "[$run_timestamp] [$PACK_NAME] [SCHEDULED] $msg" >> "$log_file"
+                end
+                set goto_sync_check 1
+                break
+            end
+            say_err "Couldn't parse time. Use HH:MM format."
+            continue
+        end
+
+        if test "$push_confirm" = "undo all"
+            git reset --soft "HEAD~$commit_num_made"
+            set committed_messages
+            set commit_num_made 0
+            say_ok "Removed all commits made this run (changes are kept, now staged)."
+            continue
+        end
+
+        if test "$push_confirm" = "undo"
+            git reset --soft HEAD~1
+            set -e committed_messages[-1]
+            set commit_num_made (count $committed_messages)
+            say_ok "Removed the last commit made this run."
+            continue
+        end
+
+        if test "$push_confirm" = "amend"
+            echo "Enter the corrected commit message:"
+            read -P "> " new_msg
+            if test -n "$new_msg"
+                set folder_tag (get_head_folder_tag)
+                if test -n "$folder_tag"
+                    set new_msg "$folder_tag $new_msg"
+                end
+                git commit -q --amend -m "$new_msg"
+                set committed_messages[-1] "$new_msg"
+                say_ok "Commit message updated."
+            end
+            continue
+        end
+
+        if string match -qr '^(undo|amend) ([0-9]+)$' -- "$push_confirm"
+            set action (string replace -r '^(undo|amend) ([0-9]+)$' '$1' -- "$push_confirm")
+            set target_idx (string replace -r '^(undo|amend) ([0-9]+)$' '$2' -- "$push_confirm")
+
+            if test $target_idx -ge 1; and test $target_idx -le $commit_num_made
+                set session_commits (git rev-list --reverse --max-count=$commit_num_made HEAD)
+                set target_hash (string sub -l 7 $session_commits[$target_idx])
+
+                if test "$action" = "amend"
+                    echo "Enter corrected message for commit $target_idx:"
+                    read -P "> " new_msg
+                    if test -z "$new_msg"; say_warn "Cancelled."; continue; end
+
+                    set staged_files (git diff-tree --no-commit-id --name-only -r $target_hash)
+                    set folder_tag (compute_folder_tag $staged_files)
+                    if test -n "$folder_tag"; and not string match -q "$folder_tag*" -- "$new_msg"
+                        set new_msg "$folder_tag $new_msg"
+                    end
+
+                    if test $target_idx -eq $commit_num_made
+                        if git commit -q --amend -m "$new_msg"
+                            set committed_messages[$target_idx] "$new_msg"
+                            say_ok "Commit $target_idx amended."
+                        else
+                            say_err "Amend failed."
+                        end
+                    else
+                        set had_rebase_stash 0
+                        set check_status (git status --short)
+                        if test (count $check_status) -gt 0
+                            git stash push -q -u -m "commit-script temp stash before rebase"
+                            set had_rebase_stash 1
+                        end
+
+                        if not env GIT_SEQUENCE_EDITOR="perl -pi -e 's/^pick $target_hash\w*/edit $target_hash/'" git rebase -i -q "HEAD~$commit_num_made" >/dev/null 2>&1
+                            say_err "Rebase failed to start. Aborting."
+                            git rebase --abort >/dev/null 2>&1
+                            if test $had_rebase_stash -eq 1; git stash pop -q >/dev/null 2>&1; end
+                            continue
+                        end
+
+                        if not git commit -q --amend -m "$new_msg"
+                            say_err "Amend failed. Aborting rebase."
+                            git rebase --abort >/dev/null 2>&1
+                            if test $had_rebase_stash -eq 1; git stash pop -q >/dev/null 2>&1; end
+                            continue
+                        end
+
+                        if not git rebase --continue >/dev/null 2>&1
+                            say_err "Rebase failed to complete (possible conflict). Aborting."
+                            git rebase --abort >/dev/null 2>&1
+                            if test $had_rebase_stash -eq 1; git stash pop -q >/dev/null 2>&1; end
+                            continue
+                        end
+
+                        if test $had_rebase_stash -eq 1
+                            git stash pop -q >/dev/null 2>&1
+                        end
+
+                        set committed_messages[$target_idx] "$new_msg"
+                        say_ok "Commit $target_idx amended."
+                    end
+                else
+                    if test $target_idx -eq $commit_num_made
+                        git reset -q --soft HEAD~1
+                        set -e committed_messages[$target_idx]
+                        set commit_num_made (count $committed_messages)
+                        say_ok "Commit $target_idx undone. Its changes are staged."
+                    else
+                        set had_rebase_stash 0
+                        set check_status (git status --short)
+                        if test (count $check_status) -gt 0
+                            git stash push -q -u -m "commit-script temp stash before rebase"
+                            set had_rebase_stash 1
+                        end
+
+                        set current_head (git rev-parse HEAD)
+
+                        if not env GIT_SEQUENCE_EDITOR="perl -pi -e 's/^pick $target_hash\w*/drop/'" git rebase -i -q "HEAD~$commit_num_made" >/dev/null 2>&1
+                            say_err "Failed to drop commit. Aborting rebase."
+                            git rebase --abort >/dev/null 2>&1
+                            if test $had_rebase_stash -eq 1; git stash pop -q >/dev/null 2>&1; end
+                            continue
+                        end
+
+                        set new_head (git rev-parse HEAD)
+                        git reset -q --hard $current_head
+                        git reset -q --soft $new_head
+
+                        if test $had_rebase_stash -eq 1
+                            git stash pop -q >/dev/null 2>&1
+                        end
+
+                        set -e committed_messages[$target_idx]
+                        set commit_num_made (count $committed_messages)
+                        say_ok "Commit $target_idx undone. Its changes are staged."
+                    end
+                end
+            else
+                say_warn "Invalid commit number. Must be between 1 and $commit_num_made."
+            end
+            continue
+        end
+
+        break
+    end
+
+    if test $goto_sync_check -eq 1
+        continue
+    end
+
+    if test "$push_confirm" = "n"; or test "$push_confirm" = "N"
+        say_warn "Push skipped. Your commits are saved locally."
+        pause_continue "Press Enter to return to the start."
+        continue
+    end
+
+    say_info "Pulling latest changes first..."
+    if not safe_pull_rebase
+        say_err "git pull --rebase failed, likely due to a conflict."
+        pause_close 1
+    end
+
+    say_info "Pushing to GitHub..."
+    git push
+
+    echo ""
+    say_ok "Done! Commits pushed this run:"
+    git log --oneline -$commit_num_made
+
+    echo ""
+    set shortstat_line (git diff --shortstat "HEAD~$commit_num_made" HEAD)
+    if test -n "$shortstat_line"
+        colorize_stat_line "$shortstat_line"
+    end
+
+    set script_end_time (date +%s)
+    set elapsed (math $script_end_time - $script_start_time)
+    set elapsed_mins (math -s0 "$elapsed / 60")
+    set elapsed_secs (math -s0 "$elapsed % 60")
+    if test $elapsed_mins -gt 0
+        echo "Run took "$elapsed_mins"m "$elapsed_secs"s"
+    else
+        echo "Run took "$elapsed_secs"s"
+    end
+
+    mkdir -p "$log_dir"
+    for msg in $committed_messages
+        echo "[$run_timestamp] [$PACK_NAME] $msg" >> "$log_file"
+    end
+
+    pause_continue "Press Enter to return to the start."
 end
-
-set_color yellow
-echo ""
-echo "Pushing to GitHub..."
-set_color normal
-git push
-
-echo ""
-set_color green
-echo "Done! Commits pushed this run:"
-set_color normal
-git log --oneline -$commit_num_made
-
-echo ""
-set shortstat_line (git diff --shortstat $start_commit HEAD)
-if test -n "$shortstat_line"
-    colorize_stat_line "$shortstat_line"
-end
-
-set script_end_time (date +%s)
-set elapsed (math $script_end_time - $script_start_time)
-set elapsed_mins (math -s0 "$elapsed / 60")
-set elapsed_secs (math -s0 "$elapsed % 60")
-if test $elapsed_mins -gt 0
-    echo "Run took "$elapsed_mins"m "$elapsed_secs"s"
-else
-    echo "Run took "$elapsed_secs"s"
-end
-
-mkdir -p "$log_dir"
-for msg in $committed_messages
-    echo "[$run_timestamp] [$PACK_NAME] $msg" >> "$log_file"
-end
-
-pause_close 0
