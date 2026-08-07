@@ -7,7 +7,7 @@ set PACK_NAME "My Modpack"
 # Optional credits shown in the banner (delete any of these lines you don't want)
 set AUTHOR_NAME "YourName"
 set DISCORD_LINK "https://discord.gg/yourinvite"
-set TOOL_VERSION "1.2.0"
+set TOOL_VERSION "1.5.0"
 
 # The local path to your cloned GitHub repo (where commits actually happen)
 set REPO_PATH ~/path/to/your/repo
