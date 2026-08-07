@@ -1,5 +1,38 @@
 # Changelog
 
+## v1.5.0 — Scheduled pushes, advanced commit management, and safer history editing
+
+### Added
+
+* Scheduled pushes with `schedule HH:MM`, allowing pushes to be deferred to a specific time
+* Background execution for scheduled pushes, allowing them to continue after the terminal is closed
+* Scheduled task visibility in the banner and through `--status`/`--info`
+* `undo N` / `amend N` support for targeting any commit in the current stack, including commits from previous runs
+* `undo all` for removing every commit made during the current session at once
+* Automatic stashing and restoration of uncommitted changes when modifying older commits
+* Smarter history-reuse tag stripping based on the configured `SYNC_FOLDERS`
+* Consistent status icons across the script (`✓` success, `✗` error, `!` warning, `→` info)
+
+### Changed
+
+* After a successful or skipped push, the script now returns to the sync-check step instead of exiting
+* Scheduled pushes preserve every individual commit and message instead of squashing them
+* Latest-commit `undo`/`amend` operations now use native Git operations instead of rebasing, allowing them to safely handle staged changes
+* `TOOL_VERSION` bumped to 1.5.0
+
+### Fixed
+
+* Pending-commit actions no longer reprint the entire commit list after every action or invalid input
+* Warning icon changed from `⚠` to `!` for more reliable terminal rendering
+* Replaced the original foreground polling scheduler with detached background execution for more reliable scheduled pushes
+* Commit hash matching now works reliably regardless of the hash length shown by Git
+
+### Internal
+
+* Added dedicated handling for older-commit history editing, including automatic stash protection and dynamic commit targeting
+* Improved separation between normal commit handling, scheduled pushes, and history-rewriting operations
+
+
 ## v1.4.0 — Colorized output, safer pulls, and cleanup
 
 ### Added
