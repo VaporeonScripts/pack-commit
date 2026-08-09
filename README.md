@@ -32,9 +32,7 @@ Run it:
 Options:
 - `-h`, `--help` — show usage info and exit
 - `--dry-run` — show what would be synced and what changed, without committing or pushing anything
-- `--stats` — show a summary of your logged commit history (total logged, this month, first/most recent) and exit
-- `--status` — show your current branch, any unpushed commits, active scheduled tasks, and any uncommitted changes already in the repo, without syncing or prompting for anything.
-- `--info` — combined view of `--status` and `--stats` in one command, which also includes scheduled task visibility.
+- `--info` — show current branch, unpushed commits, and log stats.
 
 What happens when you run it:
 - If a previous run was interrupted mid-rebase, it detects that immediately and tells you to resolve it (`git rebase --continue` or `git rebase --abort`) before doing anything else. Similarly, if a previous run got interrupted mid-stash (rare, but possible if the terminal closed at the wrong moment), it detects the leftover stash and tells you exactly how to recover or discard it.
