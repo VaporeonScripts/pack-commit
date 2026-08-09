@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.6.0 — Scheduled push logging fix and safer push confirmation
+
+### Added
+* Warning when committing files that don't match any folder defined in `SYNC_FOLDERS`, with the option to cancel before committing
+* Optional multi-line commit descriptions (like GitHub's commit UI) — press Enter to skip, or type lines and finish with a blank line
+* File picker now shows even when committing everything as a single commit, allowing you to exclude specific files without needing to split into multiple commits
+
+### Fixed
+* Scheduled push log entries now write the actual timestamp instead of the literal unexpanded date command
+* Scheduled push commands now correctly expand variables and command substitutions in the background shell
+* Push confirmation prompts no longer treat unrecognized input as a yes — only `y`, `Y`, or empty Enter confirm
+* Fixed the "About to push N commit(s)" prompt breaking out to the sync screen on invalid input instead of re-prompting
+* Fixed the same unrecognized-input issue in the pending-commits-from-previous-run prompt
+* Invalid input at either push-confirmation prompt now clears only that failed attempt in place, instead of duplicating prompts or wiping the whole screen
+* Fixed misaligned status letters in the changed-files list — staged and unstaged changes of the same type now line up in the same column, colored to distinguish them
+* File picker no longer shows for single-file changes, since there's nothing meaningful to pick
+
+### Changed
+* Removed `--stats` and `--status` flags, merged into `--info` (already showed the combined view)
+
 ## v1.5.0 — Scheduled pushes, advanced commit management, and safer history editing
 
 ### Added
