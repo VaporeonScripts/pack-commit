@@ -65,7 +65,7 @@ end
 set dry_run 0
 set script_start_time (date +%s)
 set log_dir "$script_dir/logs"
-set log_file "$log_dir/commit.log"
+set log_file "$log_dir/pack-commit.log"
 set run_timestamp (date "+%Y-%m-%d %H:%M:%S")
 
 function print_scheduled_tasks
@@ -272,6 +272,13 @@ function print_banner
     echo "   Discord: $DISCORD_LINK"
     echo "   Version: $TOOL_VERSION"
     get_last_sync_line
+    set repo_remote_url (git -C "$REPO_PATH" config --get remote.origin.url 2>/dev/null)
+    set repo_slug (string replace -r '\.git$' '' -- "$repo_remote_url")
+    set repo_slug (string replace -r '^.*[:/]([^/]+/[^/]+)$' '$1' -- "$repo_slug")
+    set repo_total_commits (git -C "$REPO_PATH" rev-list --count HEAD 2>/dev/null)
+    if test -n "$repo_slug"
+        echo "   Repo: $repo_slug ($repo_total_commits commits)"
+    end
     if test $dry_run -eq 1
         echo "   [DRY RUN — nothing will be committed or pushed]"
     end
@@ -526,7 +533,7 @@ while true
 
     if test $skip_pending_print -eq 0
         say_warn "You have $pending_count commit(s) not yet pushed from a previous run:"
-        git log --oneline --stat '@{u}..HEAD'
+        git log --oneline --stat-graph-width=20 '@{u}..HEAD'
         echo ""
     end
 
@@ -677,7 +684,11 @@ while true
             end
         else
             say_warn "Invalid commit number. Must be between 1 and $pending_count."
-            set skip_pending_print 1
+            pause_continue "Press Enter to retype."
+            clear
+            print_banner
+            print_branch
+            print_scheduled_tasks
         end
         continue
     end
@@ -692,8 +703,10 @@ while true
     if not test -z "$pending_push_confirm"; and not test "$pending_push_confirm" = "y"; and not test "$pending_push_confirm" = "Y"
         say_warn "Unrecognized input '$pending_push_confirm'. Try again."
         pause_continue "Press Enter to retype."
-        tput rc
-        tput ed
+        clear
+        print_banner
+        print_branch
+        print_scheduled_tasks
         continue
     end
 
@@ -808,6 +821,7 @@ while true
             echo ""
             echo "  If splitting into more than 1 commit, you'll be asked which files"
             echo "  go in each round, by entering file numbers separated by spaces."
+            echo "  Ranges like 1-5 also work, and can be mixed with single numbers."
             echo "  Press Enter there for everything remaining."
             echo ""
             pause_continue
@@ -870,15 +884,31 @@ while true
                     tput ed
                     set lines_to_clear 0
                 end
-                echo "Enter numbers separated by spaces, or press Enter for everything remaining:"
+                echo "Enter numbers separated by spaces (ranges like 1-5 also work), or press Enter for everything remaining:"
                 read -P "> " picker_raw
                 if test -z "$picker_raw"
                     set commit_paths "-A"
                     set picker_valid 1
                 else
                     set commit_paths
-                    set invalid_count 0
+                    set invalid_tokens
+                    set expanded_tokens
                     for n in (string split " " -- $picker_raw)
+                        if string match -qr '^[0-9]+-[0-9]+$' -- "$n"
+                            set range_start (string split -- "-" $n)[1]
+                            set range_end (string split -- "-" $n)[2]
+                            if test $range_start -le $range_end
+                                for r in (seq $range_start $range_end)
+                                    set -a expanded_tokens "$r"
+                                end
+                            else
+                                set -a expanded_tokens "$n"
+                            end
+                        else
+                            set -a expanded_tokens "$n"
+                        end
+                    end
+                    for n in $expanded_tokens
                         if string match -qr '^[0-9]+$' -- "$n"
                             set chosen $remaining_paths[$n]
                             if test -n "$chosen"
@@ -886,18 +916,21 @@ while true
                                     set -a commit_paths "$chosen"
                                 end
                             else
-                                echo "Invalid number: $n, skipping."
-                                set invalid_count (math $invalid_count + 1)
+                                set -a invalid_tokens "$n"
                             end
                         else
-                            echo "Invalid input: $n, skipping."
-                            set invalid_count (math $invalid_count + 1)
+                            set -a invalid_tokens "$n"
                         end
+                    end
+                    set invalid_line_count 0
+                    if test (count $invalid_tokens) -gt 0
+                        echo "Invalid input: "(string join ", " -- $invalid_tokens)", skipping."
+                        set invalid_line_count 1
                     end
                     if test (count $commit_paths) -eq 0
                         echo "No valid selections were made."
                         pause_continue
-                        set lines_to_clear (math 5 + $invalid_count)
+                        set lines_to_clear (math 5 + $invalid_line_count)
                     else
                         set picker_valid 1
                     end
@@ -1178,6 +1211,9 @@ while true
                 end
             else
                 say_warn "Invalid commit number. Must be between 1 and $commit_num_made."
+                pause_continue "Press Enter to retype."
+                tput rc
+                tput ed
             end
             continue
         end
