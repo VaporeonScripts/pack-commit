@@ -32,11 +32,12 @@ Run it:
 Options:
 - `-h`, `--help` — show usage info and exit
 - `--dry-run` — show what would be synced and what changed, without committing or pushing anything
-- `--info` — show current branch, unpushed commits, and log stats.
+- `--info` — show current branch, unpushed commits, and log stats
+- `--version` — show the tool's version and exit
 
 What happens when you run it:
 - If a previous run was interrupted mid-rebase, it detects that immediately and tells you to resolve it (`git rebase --continue` or `git rebase --abort`) before doing anything else. Similarly, if a previous run got interrupted mid-stash (rare, but possible if the terminal closed at the wrong moment), it detects the leftover stash and tells you exactly how to recover or discard it.
-- It shows your current branch as a quick sanity check before anything happens, along with a "Last synced" line if a previous push has been logged (relative time plus the exact timestamp), and displays any active scheduled tasks.
+- It shows your current branch as a quick sanity check before anything happens, along with a "Last synced" line if a previous push has been logged (relative time plus the exact timestamp), the repo's owner/name and total commit count (pulled from `git remote`), and displays any active scheduled tasks.
 - If you have commits sitting locally from a previous run that never got pushed (e.g. you answered "n" to the push prompt last time), it shows you exactly what's pending — commit summaries and which files changed — and lets you:
   - push them now
   - skip (they'll show up again next run)
@@ -48,7 +49,7 @@ What happens when you run it:
 - It then syncs your configured folders and shows you what changed (`git status --short`).
 - If nothing changed, it doesn't just exit — it offers to check again right there: type `r` to re-sync and check for changes, `help` for a quick reminder, or press Enter to close. Handy if you're editing files with the script's terminal left open, so you don't need to relaunch it from scratch every time.
 - If something changed, it asks how many commits you want to split the changes into (type `help` at this prompt for a quick reminder, or `r` to re-sync your folders and re-check for changes — handy if source files are still being written when you reach this point, e.g. a game or launcher still saving on exit). Invalid input here gets a clear rejection message rather than being silently accepted, and if only a single file has changed, you're restricted to 1 commit (still free to type `r`/`help`) since splitting one file across multiple commits doesn't make sense. Any files left staged from outside this run are unstaged first, so each commit round only ever contains what you actually specify for it.
- - Instead of typing file paths, you get a **numbered list** of the remaining changed files (aligned consistently even past 9 entries) — type the numbers you want (e.g. `1 3`), space-separated, or press Enter to sweep up everything remaining into that commit. Invalid input re-prompts you instead of silently defaulting. If only one file changed overall, the picker is skipped entirely and that file is committed straight away.
+ - Instead of typing file paths, you get a **numbered list** of the remaining changed files (aligned consistently even past 9 entries) — type the numbers you want (e.g. `1 3`), space-separated, and ranges like `1-5` work too (mixable with single numbers, e.g. `1-5 9`), or press Enter to sweep up everything remaining into that commit. Invalid entries are reported together in one message rather than one per bad entry, and re-prompt you instead of silently defaulting. If only one file changed overall, the picker is skipped entirely and that file is committed straight away.
 - If none of the files you're about to commit match a folder defined in `SYNC_FOLDERS`, you'll get a warning listing them, with the option to cancel that round instead of committing without a folder tag.
 - At the commit message prompt: type `history` to reuse one of your last 5 logged messages (which now features smarter history-reuse tag stripping based on your configured `SYNC_FOLDERS`), or `skip` to bail out of that specific round entirely without committing anything for it. After the message, you can optionally add a multi-line extended description (similar to GitHub's commit UI) — press Enter to skip, or type lines and finish with a blank line to attach a full commit body.
 - A round only counts toward the final push if `git commit` actually created a commit — if nothing was staged for that round, it's skipped rather than falsely counted.
