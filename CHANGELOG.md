@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.7.0 — Range selection, repo info, and picker/prompt polish
+
+### Added
+* File picker now supports numeric ranges (e.g. `1-5`) alongside individual numbers, and can be mixed (`1-5 9`)
+* Banner now shows the repo's owner/name and total commit count
+
+### Fixed
+* Diffstat bars for large file changes no longer stretch across the whole terminal, while file names and line counts stay untouched
+* Multiple invalid entries in the file picker are now shown as a single consolidated message instead of one line per bad entry, and no longer crash on dash-prefixed input (e.g. `-224`)
+* Invalid commit numbers for `undo N`/`amend N` at both the pending-commit and fresh-push confirmation prompts now properly clear and redraw the screen instead of leaving a stale or incomplete display
+* Unrecognized input at the pending-commit prompt no longer produces duplicated or corrupted screen output when the commit recap is long
+
 ## v1.6.0 — Scheduled push logging fix and safer push confirmation
 
 ### Added
