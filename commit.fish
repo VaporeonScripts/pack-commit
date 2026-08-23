@@ -311,20 +311,48 @@ function schedule_background_push
             sleep 1
         end
         cd '$REPO_PATH'
+        set lock_wait_start (date +%s)
+        set lock_acquired 0
         while true
             set current_state (cat .git/pack_commit_sync_state 2>/dev/null)
             if test -z \"\$current_state\"; or test \"\$current_state\" = \"IDLE\"
-                echo \"BG_RUNNING\" > .git/pack_commit_sync_state
+                echo \"BG_RUNNING:\$fish_pid\" > .git/pack_commit_sync_state
                 sleep 1
                 set verify_state (cat .git/pack_commit_sync_state 2>/dev/null)
-                if test \"\$verify_state\" = \"BG_RUNNING\"
+                if test \"\$verify_state\" = \"BG_RUNNING:\$fish_pid\"
+                    set lock_acquired 1
                     break
                 end
             end
+            set now_epoch (date +%s)
+            if test (math \$now_epoch - \$lock_wait_start) -ge 600
+                break
+            end
             sleep 3
         end
+        if test \$lock_acquired -eq 0
+            echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] [$PACK_NAME] [SCHEDULED PUSH FAILED] Timed out waiting for the script to be idle.\" >> '$log_file'
+            if test -f '$log_dir/scheduled_tasks'
+                set remaining (grep -v \"^\$fish_pid|\" '$log_dir/scheduled_tasks' 2>/dev/null)
+                if test -n \"\$remaining\"
+                    printf \"%s\n\" \$remaining > '$log_dir/scheduled_tasks'
+                else
+                    rm -f '$log_dir/scheduled_tasks'
+                end
+            end
+            exit 1
+        end
         git fetch --quiet 2>/dev/null
-        if not git pull --rebase --quiet 2>/dev/null
+        set bg_pull_ok 0
+        for bg_attempt in 1 2 3
+            if git pull --rebase -X theirs --quiet 2>/dev/null
+                set bg_pull_ok 1
+                break
+            end
+            git rebase --abort >/dev/null 2>&1
+            sleep 2
+        end
+        if test \$bg_pull_ok -eq 0
             echo \"[\$(date '+%Y-%m-%d %H:%M:%S')] [$PACK_NAME] [SCHEDULED PUSH FAILED] Pull/rebase failed (possible conflict).\" >> '$log_file'
             echo \"IDLE\" > .git/pack_commit_sync_state
             if test -f '$log_dir/scheduled_tasks'
@@ -399,6 +427,12 @@ function pause_close
     exit $argv[1]
 end
 
+function read_idle
+    set_sync_state "IDLE"
+    read -g -P "> " $argv[1]
+    set_sync_state "ACTIVE"
+end
+
 function safe_pull_rebase
     git fetch --quiet 2>/dev/null
     set behind_count (git rev-list --count 'HEAD..@{u}' 2>/dev/null)
@@ -415,8 +449,21 @@ function safe_pull_rebase
         git stash push -u -m "pack-commit auto-stash before rebase" > /dev/null
         set had_stash 1
     end
-    git pull --rebase
-    set pull_status $status
+    set max_attempts 3
+    set attempt 1
+    set pull_status 1
+    while test $attempt -le $max_attempts
+        git pull --rebase -X theirs
+        set pull_status $status
+        if test $pull_status -eq 0
+            break
+        end
+        git rebase --abort >/dev/null 2>&1
+        if test $attempt -lt $max_attempts
+            sleep 2
+        end
+        set attempt (math $attempt + 1)
+    end
     if test $had_stash -eq 1
         if git stash pop > /dev/null
             say_ok "Restored stashed changes:"
@@ -540,7 +587,7 @@ while true
     set skip_pending_print 0
 
     echo "Push these now? [Y/n], 'undo' (last), 'undo all', 'amend' (last), 'undo N'/'amend N' (e.g. 'amend 1'), or 'schedule HH:MM':"
-    read -P "> " pending_push_confirm
+    read_idle pending_push_confirm
 
     if string match -qr '^schedule ([0-9]{1,2}:[0-9]{2})$' -- "$pending_push_confirm"
         set sched_time_str (string replace -r '^schedule ' '' -- "$pending_push_confirm")
@@ -568,7 +615,7 @@ while true
 
     if test "$pending_push_confirm" = "amend"
         echo "Enter the corrected commit message:"
-        read -P "> " new_msg
+        read_idle new_msg
         if test -z "$new_msg"
             say_warn "Cancelled."
             set skip_pending_print 1
@@ -594,7 +641,7 @@ while true
 
             if test "$action" = "amend"
                 echo "Enter corrected message for commit $target_idx:"
-                read -P "> " new_msg
+                read_idle new_msg
                 if test -z "$new_msg"; say_warn "Cancelled."; set skip_pending_print 1; continue; end
 
                 set staged_files (git diff-tree --no-commit-id --name-only -r $target_hash)
@@ -750,12 +797,27 @@ while true
         echo "Press Enter to close, type 'r' to check again, or 'help' for usage info:"
 
         set_sync_state "IDLE"
-        read -P "> " no_changes_choice
+
+        if test -f "$log_dir/scheduled_tasks"
+            set no_changes_choice ""
+            while true
+                set no_changes_choice (timeout 5 fish -c 'read -P "> " line 2>/dev/null; and echo -n $line')
+                if test $status -eq 0
+                    break
+                end
+                if not test -f "$log_dir/scheduled_tasks"
+                    set no_changes_choice "r"
+                    break
+                end
+            end
+        else
+            read -P "> " no_changes_choice
+        end
 
         set printed_wait 0
         while true
             set check_state (cat "$REPO_PATH/.git/pack_commit_sync_state" 2>/dev/null)
-            if test "$check_state" != "BG_RUNNING"
+            if not string match -q "BG_RUNNING:*" -- "$check_state"
                 break
             end
             if test $printed_wait -eq 0
@@ -804,10 +866,13 @@ while true
     set valid_input 0
     set do_resync 0
     while test $valid_input -eq 0
-        echo "How many separate commits do you want to split these changes into? (default 1, type 'help' for info, 'r' to re-sync)"
-        read -P "> " commit_count
+        echo "How many separate commits do you want to split these changes into? (default 1, type 'help' for info, 'r' to re-sync, 'exit' to close without committing)"
+        read_idle commit_count
 
-        if test "$commit_count" = "r"
+        if test "$commit_count" = "exit"
+            say_info "Closing without committing."
+            pause_close 0
+        else if test "$commit_count" = "r"
             echo ""
             say_info "Re-syncing..."
             set do_resync 1
@@ -818,6 +883,7 @@ while true
             echo "  Enter a number to split your changes into that many separate commits."
             echo "  Press Enter (blank) for 1 commit containing everything."
             echo "  Type 'r' to re-sync and check for new file changes."
+            echo "  Type 'exit' to close the script without committing anything."
             echo ""
             echo "  If splitting into more than 1 commit, you'll be asked which files"
             echo "  go in each round, by entering file numbers separated by spaces."
@@ -885,7 +951,7 @@ while true
                     set lines_to_clear 0
                 end
                 echo "Enter numbers separated by spaces (ranges like 1-5 also work), or press Enter for everything remaining:"
-                read -P "> " picker_raw
+                read_idle picker_raw
                 if test -z "$picker_raw"
                     set commit_paths "-A"
                     set picker_valid 1
@@ -953,15 +1019,23 @@ while true
                 echo "  $f"
             end
             echo "Continue without a folder tag? [Y/n]"
-            read -P "> " tag_confirm
+            read_idle tag_confirm
             if test "$tag_confirm" = "n"; or test "$tag_confirm" = "N"
                 set skip_round 1
             end
         end
 
         while test -z "$commit_msg"; and test $skip_round -eq 0
+            tput sc
             echo "Enter commit message for commit $i (or type 'history' to reuse a recent one, 'skip' to skip this round):"
             read -P "> " commit_msg_raw
+            if test -z "$commit_msg_raw"
+                say_warn "Commit message cannot be empty. Try again."
+                pause_continue "Press Enter to retype."
+                tput rc
+                tput ed
+                continue
+            end
             if test "$commit_msg_raw" = "skip"
                 set skip_round 1
                 break
@@ -978,7 +1052,7 @@ while true
                         set idx (math $idx + 1)
                     end
                     echo "Type a number to reuse one, or type a new message:"
-                    read -P "> " history_choice
+                    read_idle history_choice
 
                     if string match -qr '^[0-9]+$' -- "$history_choice"
                         set chosen_line $recent_msgs[$history_choice]
@@ -1022,17 +1096,22 @@ while true
         echo "Add an extended description? (optional — press Enter to skip, or type lines and press Enter on a blank line when done):"
         set desc_lines
         while true
-            read -P "> " desc_line
+            read_idle desc_line
             if test -z "$desc_line"
                 break
             end
             set -a desc_lines "$desc_line"
         end
-        set commit_desc_args
-        for line in $desc_lines
-            set -a commit_desc_args -m "$line"
+        if test (count $desc_lines) -gt 0
+            set tmp_msg_file (mktemp)
+            echo "$commit_msg" > "$tmp_msg_file"
+            echo "" >> "$tmp_msg_file"
+            printf "%s\n" $desc_lines >> "$tmp_msg_file"
+            set commit_output (git commit -F "$tmp_msg_file")
+            rm -f "$tmp_msg_file"
+        else
+            set commit_output (git commit -m "$commit_msg")
         end
-        set commit_output (git commit -m "$commit_msg" $commit_desc_args)
 
         set commit_status $status
 
@@ -1065,7 +1144,7 @@ while true
         set_color yellow
         echo "About to push $commit_num_made commit(s). [Y/n], 'undo' (last), 'undo all', 'amend' (last), 'undo N'/'amend N' (e.g. 'amend 1'), or 'schedule HH:MM':"
         set_color normal
-        read -P "> " push_confirm
+        read_idle push_confirm
 
         if string match -qr '^schedule ([0-9]{1,2}:[0-9]{2})$' -- "$push_confirm"
             set sched_time_str (string replace -r '^schedule ' '' -- "$push_confirm")
@@ -1098,7 +1177,7 @@ while true
 
         if test "$push_confirm" = "amend"
             echo "Enter the corrected commit message:"
-            read -P "> " new_msg
+            read_idle new_msg
             if test -n "$new_msg"
                 set folder_tag (get_head_folder_tag)
                 if test -n "$folder_tag"
@@ -1121,7 +1200,7 @@ while true
 
                 if test "$action" = "amend"
                     echo "Enter corrected message for commit $target_idx:"
-                    read -P "> " new_msg
+                    read_idle new_msg
                     if test -z "$new_msg"; say_warn "Cancelled."; continue; end
 
                     set staged_files (git diff-tree --no-commit-id --name-only -r $target_hash)
