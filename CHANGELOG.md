@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.8.0 — Scheduling reliability, safer conflict handling, and quality-of-life fixes
+
+### Added
+* Added an 'exit' option at the "How many commits" prompt to close the script without committing any changes
+
+### Fixed
+* Multi-line commit descriptions no longer show an extra blank line between each typed line — they now display tight together, matching GitHub's commit UI behavior
+* Fixed a race condition where two scheduled background pushes could both believe they'd acquired the lock simultaneously, causing them to collide and push at the same time
+* Scheduled pushes now give up cleanly after 10 minutes if they can't safely acquire the lock, instead of waiting forever as an orphaned background process
+* The "waiting to be idle" window for scheduled pushes now covers every interactive prompt in the script, not just the "No changes detected" screen — significantly reducing how long a scheduled push may need to wait
+* The "No changes detected" screen now automatically refreshes once a scheduled push finishes, clearing the stale "Scheduled for HH:MM" label without requiring manual input
+* Fixed the commit message prompt flooding the terminal with repeated prompts when submitted empty — it now warns, pauses, and clears just that failed attempt before re-prompting
+
+### Changed
+* Pull/rebase now automatically retries up to 3 times on failure (aborting cleanly between attempts), and resolves any conflicting lines in favor of local changes instead of stopping and requiring manual resolution
+
 ## v1.7.0 — Range selection, repo info, and picker/prompt polish
 
 ### Added
