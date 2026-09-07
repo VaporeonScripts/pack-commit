@@ -272,10 +272,6 @@ function print_banner
     echo "   Discord: $DISCORD_LINK"
     echo "   Version: $TOOL_VERSION"
     get_last_sync_line
-    set repo_remote_url (git -C "$REPO_PATH" config --get remote.origin.url 2>/dev/null)
-    set repo_slug (string replace -r '\.git$' '' -- "$repo_remote_url")
-    set repo_slug (string replace -r '^.*[:/]([^/]+/[^/]+)$' '$1' -- "$repo_slug")
-    set repo_total_commits (git -C "$REPO_PATH" rev-list --count HEAD 2>/dev/null)
     if test -n "$repo_slug"
         echo "   Repo: $repo_slug ($repo_total_commits commits)"
     end
@@ -551,6 +547,18 @@ clear
 print_banner
 cd "$REPO_PATH"
 set_sync_state "ACTIVE"
+
+git fetch --quiet 2>/dev/null
+set repo_remote_url (git config --get remote.origin.url 2>/dev/null)
+set repo_slug (string replace -r '\.git$' '' -- "$repo_remote_url")
+set repo_slug (string replace -r '^.*[:/]([^/]+/[^/]+)$' '$1' -- "$repo_slug")
+set local_commit_count (git rev-list --count HEAD 2>/dev/null)
+set remote_commit_count (git rev-list --count '@{u}' 2>/dev/null)
+if test -n "$remote_commit_count"; and test "$remote_commit_count" -gt "$local_commit_count"
+    set repo_total_commits $remote_commit_count
+else
+    set repo_total_commits $local_commit_count
+end
 
 if test -d "$REPO_PATH/.git/rebase-merge"; or test -d "$REPO_PATH/.git/rebase-apply"
     say_err "A rebase is already in progress in $REPO_PATH."
