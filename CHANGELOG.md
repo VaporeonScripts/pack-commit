@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.9.0 — Accurate repo commit count
+
+### Changed
+* Repo commit count in the banner now reflects a fresh fetch at startup instead of only your local clone's history, so commits made directly on GitHub (e.g. via the web UI) are counted correctly even before you've pulled locally
+
 ## v1.8.0 — Scheduling reliability, safer conflict handling, and quality-of-life fixes
 
 ### Added
