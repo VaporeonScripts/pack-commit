@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.9.1 — Fix for folder names with spaces
+
+### Fixed
+* Files inside folders with spaces in their names (e.g. `Farmer's Delight`) can now be picked and committed from the file list
+
 ## v1.9.0 — Accurate repo commit count
 
 ### Changed
