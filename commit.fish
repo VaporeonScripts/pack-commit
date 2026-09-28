@@ -240,6 +240,7 @@ function print_status_lines
         set x (string sub -l 1 -- $line)
         set y (string sub -s 2 -l 1 -- $line)
         set fpath (string sub -s 4 -- $line)
+        set fpath (string trim -c '"' -- $fpath)
         if test "$x" != " "
             set letter "$x"
             set_color green
@@ -945,6 +946,7 @@ while true
             echo "Remaining changed files:"
             for line in $remaining_status
                 set fpath (string sub -s 4 -- $line)
+                set fpath (string trim -c '"' -- $fpath)
                 set -a remaining_paths "$fpath"
                 set padded_idx (string pad -w $idx_width -- "$idx")
                 echo "  $padded_idx) $line"
