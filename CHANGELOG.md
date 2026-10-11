@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.9.2 — Untracked folder listing and exit fix
+
+- Fixed new (untracked) folders showing as a single collapsed entry. Every file inside is now listed individually in the status view, the file count and the numbered picker.
+- Added an `exit` option to the "no changes" screen. Invalid input there now shows a clear error instead of looping the prompt endlessly.
+
 ## v1.9.1 — Fix for folder names with spaces
 
 ### Fixed
