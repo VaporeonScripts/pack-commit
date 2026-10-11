@@ -136,7 +136,7 @@ for arg in $argv
                 say_ok "No unpushed commits."
             end
             echo ""
-            set info_changes (git status --short)
+            set info_changes (git status --short -uall)
             if test -n "$info_changes"
                 say_warn "Uncommitted changes already in the repo folder:"
                 print_status_lines $info_changes
@@ -404,7 +404,7 @@ function redraw_sync_status
     set_color yellow
     echo "Files changed since last commit:"
     set_color normal
-    print_status_lines (git status --short)
+    print_status_lines (git status --short -uall)
     echo ""
 end
 
@@ -437,7 +437,7 @@ function safe_pull_rebase
         return 0
     end
     set had_stash 0
-    set local_changes (git status --short)
+    set local_changes (git status --short -uall)
     if test -n "$local_changes"
         say_info "Temporarily stashing uncommitted changes before pulling:"
         for line in $local_changes
@@ -667,7 +667,7 @@ while true
                     end
                 else
                     set had_rebase_stash 0
-                    set check_status (git status --short)
+                    set check_status (git status --short -uall)
                     if test (count $check_status) -gt 0
                         git stash push -q -u -m "pack-commit temp stash before rebase"
                         set had_rebase_stash 1
@@ -710,7 +710,7 @@ while true
                     say_ok "Commit $target_idx undone. Its changes are staged."
                 else
                     set had_rebase_stash 0
-                    set check_status (git status --short)
+                    set check_status (git status --short -uall)
                     if test (count $check_status) -gt 0
                         git stash push -q -u -m "pack-commit temp stash before rebase"
                         set had_rebase_stash 1
@@ -792,7 +792,7 @@ while true
     set no_changes_choice ""
     while true
         do_sync
-        set changes (git status --short)
+        set changes (git status --short -uall)
         if test -n "$changes"
             break
         end
@@ -803,7 +803,7 @@ while true
         end
 
         say_warn "No changes detected since last commit."
-        echo "Press Enter to close, type 'r' to check again, or 'help' for usage info:"
+        echo "Press Enter to close, type 'r' to check again, 'exit' to quit, or 'help' for usage info:"
 
         set_sync_state "IDLE"
 
@@ -843,15 +843,23 @@ while true
             echo "Usage:"
             echo "  'r'     — re-sync folders and check for changes again"
             echo "  Enter   — close the script"
+            echo "  'exit'  — close the script"
             echo ""
             pause_continue
             clear
             print_banner
             print_branch
             print_scheduled_tasks
-        else if test -z "$no_changes_choice"
+        else if test -z "$no_changes_choice"; or test "$no_changes_choice" = "exit"
             pause_close 0
         else if test "$no_changes_choice" = "r"
+            clear
+            print_banner
+            print_branch
+            print_scheduled_tasks
+        else
+            say_err "Invalid input: '$no_changes_choice'. Use Enter, 'r', 'exit' or 'help'."
+            sleep 1
             clear
             print_banner
             print_branch
@@ -863,9 +871,9 @@ while true
     set_color yellow
     echo "Files changed since last commit:"
     set_color normal
-    print_status_lines (git status --short)
+    print_status_lines (git status --short -uall)
     echo ""
-    set changed_file_count (count (git status --short))
+    set changed_file_count (count (git status --short -uall))
 
     if test $dry_run -eq 1
         say_info "Dry run complete. No commits or pushes made."
@@ -935,7 +943,7 @@ while true
         set_color cyan
         echo "--- Commit $i of $commit_count ---"
         set_color normal
-        set remaining_status (git status --short)
+        set remaining_status (git status --short -uall)
         if test -z "$remaining_status"; or test "$changed_file_count" -eq 1
             set commit_paths "-A"
         else
@@ -1228,7 +1236,7 @@ while true
                         end
                     else
                         set had_rebase_stash 0
-                        set check_status (git status --short)
+                        set check_status (git status --short -uall)
                         if test (count $check_status) -gt 0
                             git stash push -q -u -m "pack-commit temp stash before rebase"
                             set had_rebase_stash 1
@@ -1270,7 +1278,7 @@ while true
                         say_ok "Commit $target_idx undone. Its changes are staged."
                     else
                         set had_rebase_stash 0
-                        set check_status (git status --short)
+                        set check_status (git status --short -uall)
                         if test (count $check_status) -gt 0
                             git stash push -q -u -m "pack-commit temp stash before rebase"
                             set had_rebase_stash 1
