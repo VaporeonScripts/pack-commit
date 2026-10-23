@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.9.3 — Empty commit message prompt fix
+
+- Fixed the commit message prompt repeating itself on empty input when the terminal was already full.
+
 ## v1.9.2 — Untracked folder listing and exit fix
 
 - Fixed new (untracked) folders showing as a single collapsed entry. Every file inside is now listed individually in the status view, the file count and the numbered picker.
