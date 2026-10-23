@@ -1050,7 +1050,7 @@ while true
             if test -z "$commit_msg_raw"
                 say_warn "Commit message cannot be empty. Try again."
                 pause_continue "Press Enter to retype."
-                tput rc
+                tput cuu 5
                 tput ed
                 continue
             end
