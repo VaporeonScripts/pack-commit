@@ -944,6 +944,10 @@ while true
         echo "--- Commit $i of $commit_count ---"
         set_color normal
         set remaining_status (git status --short -uall)
+        if test -z "$remaining_status"; and test $i -gt 1
+            say_info "No files left to commit. Skipping the remaining rounds."
+            break
+        end
         if test -z "$remaining_status"; or test "$changed_file_count" -eq 1
             set commit_paths "-A"
         else
