@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.9.4 — Empty round fix
+
+- Fixed the script asking for a commit message on a round with no files left (for example after selecting everything early). The remaining rounds are now skipped automatically.
+
 ## v1.9.3 — Empty commit message prompt fix
 
 - Fixed the commit message prompt repeating itself on empty input when the terminal was already full.
